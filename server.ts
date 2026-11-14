@@ -5,7 +5,6 @@ import path from 'node:path';
 import express, { type NextFunction, type Request, type Response } from 'express';
 import multer from 'multer';
 import Razorpay from 'razorpay';
-import { createServer as createViteServer } from 'vite';
 import {
   buildTailoredOrderPrompt,
   calculateItemPricing,
@@ -1166,7 +1165,11 @@ async function startServer() {
   // 9. Vite Middleware (Dev) or Static Dist Serving (Prod)
   const isProd = process.env.NODE_ENV === 'production';
   if (!isProd) {
-    const vite = await createViteServer({
+    // Vite is loaded lazily and only for local development. A static import
+    // here would make the Vercel server function load Vite (and its rolldown
+    // native binding) at startup and crash with 500 FUNCTION_INVOCATION_FAILED.
+    const { createServer } = await import('vite');
+    const vite = await createServer({
       server: { middlewareMode: true },
       appType: 'spa',
     });
