@@ -1,0 +1,264 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    // 1. Global Safety Net (Default Deny)
+    match /{document=**} {
+      allow read, write: if false;
+    }
+
+    // 2. Hardened Global Helpers
+    function isSignedIn() {
+      return request.auth != null;
+    }
+
+    function isVerifiedUser() {
+      return isSignedIn() && request.auth.token.email_verified == true;
+    }
+
+    function isOwner(userId) {
+      return isSignedIn() && request.auth.uid == userId;
+    }
+
+    function isAdmin() {
+      return isSignedIn() && (
+        request.auth.token.admin == true ||
+        exists(/databases/$(database)/documents/admins/$(request.auth.uid)) ||
+        (request.auth.token.email == 'tarunpediredla9966@gmail.com' && request.auth.token.email_verified == true)
+      );
+    }
+
+    function isValidId(id) {
+      return id is string && id.size() >= 1 && id.size() <= 128 && id.matches('^[a-zA-Z0-9_\\-]+$');
+    }
+
+    function incoming() {
+      return request.resource.data;
+    }
+
+    function existing() {
+      return resource.data;
+    }
+
+    // 3. Entity Validation Blueprints
+    function isValidCategory(data) {
+      return data.keys().hasAll(['id', 'name', 'slug', 'active']) &&
+        data.keys().hasOnly(['id', 'name', 'slug', 'description', 'imageUrl', 'sortOrder', 'active']) &&
+        isValidId(data.id) &&
+        data.name is string && data.name.size() >= 2 && data.name.size() <= 80 &&
+        data.slug is string && data.slug.size() >= 2 && data.slug.size() <= 80 &&
+        data.active is bool &&
+        (!('description' in data) || (data.description is string && data.description.size() <= 400)) &&
+        (!('imageUrl' in data) || (data.imageUrl is string && data.imageUrl.size() <= 500)) &&
+        (!('sortOrder' in data) || data.sortOrder is int);
+    }
+
+    function isValidProduct(data) {
+      return data.keys().hasAll(['id', 'title', 'categoryId', 'basePricePaise', 'published']) &&
+        data.keys().hasOnly([
+          'id', 'title', 'slug', 'categoryId', 'categoryName', 'shortDescription',
+          'description', 'imageUrl', 'basePricePaise', 'compareAtPricePaise',
+          'turnaroundDays', 'artworkRequired', 'featured', 'published',
+          'optionGroups', 'quantityTiers', 'isSampleData', 'updatedAt'
+        ]) &&
+        isValidId(data.id) &&
+        isValidId(data.categoryId) &&
+        data.title is string && data.title.size() >= 2 && data.title.size() <= 140 &&
+        data.basePricePaise is int && data.basePricePaise >= 0 &&
+        data.published is bool &&
+        (!('slug' in data) || (data.slug is string && data.slug.size() <= 140)) &&
+        (!('categoryName' in data) || (data.categoryName is string && data.categoryName.size() <= 80)) &&
+        (!('shortDescription' in data) || (data.shortDescription is string && data.shortDescription.size() <= 300)) &&
+        (!('description' in data) || (data.description is string && data.description.size() <= 2000)) &&
+        (!('imageUrl' in data) || (data.imageUrl is string && data.imageUrl.size() <= 500)) &&
+        (!('compareAtPricePaise' in data) || (data.compareAtPricePaise is int && data.compareAtPricePaise >= 0)) &&
+        (!('turnaroundDays' in data) || (data.turnaroundDays is string && data.turnaroundDays.size() <= 60)) &&
+        (!('artworkRequired' in data) || data.artworkRequired is bool) &&
+        (!('featured' in data) || data.featured is bool) &&
+        (!('optionGroups' in data) || (data.optionGroups is list && data.optionGroups.size() <= 10)) &&
+        (!('quantityTiers' in data) || (data.quantityTiers is list && data.quantityTiers.size() <= 20)) &&
+        (!('isSampleData' in data) || data.isSampleData is bool);
+    }
+
+    function isValidUserProfile(data, userId) {
+      return data.keys().hasAll(['uid', 'email', 'createdAt', 'updatedAt']) &&
+        data.keys().hasOnly(['uid', 'email', 'displayName', 'phone', 'companyName', 'gstin', 'addresses', 'wishlistProductIds', 'createdAt', 'updatedAt']) &&
+        isValidId(data.uid) &&
+        data.uid == userId &&
+        data.email is string && data.email.size() <= 200 &&
+        (!('displayName' in data) || (data.displayName is string && data.displayName.size() <= 120)) &&
+        (!('phone' in data) || (data.phone is string && data.phone.size() <= 30)) &&
+        (!('companyName' in data) || (data.companyName is string && data.companyName.size() <= 120)) &&
+        (!('gstin' in data) || (data.gstin is string && data.gstin.size() <= 20)) &&
+        (!('addresses' in data) || (data.addresses is list && data.addresses.size() <= 10)) &&
+        (!('wishlistProductIds' in data) || (data.wishlistProductIds is list && data.wishlistProductIds.size() <= 100));
+    }
+
+    function isValidQuoteCreate(data) {
+      return data.keys().hasAll(['id', 'userId', 'customerName', 'customerEmail', 'productType', 'quantity', 'status', 'createdAt', 'updatedAt']) &&
+        data.keys().hasOnly([
+          'id', 'userId', 'customerName', 'customerEmail', 'customerPhone',
+          'productType', 'quantity', 'dimensions', 'paperAndFinish', 'notes',
+          'artworkId', 'artworkFileName', 'status', 'createdAt', 'updatedAt'
+        ]) &&
+        isValidId(data.id) &&
+        data.userId == request.auth.uid &&
+        data.customerName is string && data.customerName.size() >= 2 && data.customerName.size() <= 120 &&
+        data.customerEmail is string && data.customerEmail.size() <= 200 &&
+        data.productType is string && data.productType.size() >= 2 && data.productType.size() <= 120 &&
+        data.quantity is int && data.quantity >= 1 && data.quantity <= 1000000 &&
+        data.status == 'submitted' &&
+        data.createdAt == request.time &&
+        data.updatedAt == request.time &&
+        (!('customerPhone' in data) || (data.customerPhone is string && data.customerPhone.size() <= 30)) &&
+        (!('dimensions' in data) || (data.dimensions is string && data.dimensions.size() <= 120)) &&
+        (!('paperAndFinish' in data) || (data.paperAndFinish is string && data.paperAndFinish.size() <= 200)) &&
+        (!('notes' in data) || (data.notes is string && data.notes.size() <= 2000)) &&
+        (!('artworkId' in data) || (data.artworkId is string && data.artworkId.size() <= 128)) &&
+        (!('artworkFileName' in data) || (data.artworkFileName is string && data.artworkFileName.size() <= 200));
+    }
+
+    function isValidQuoteAdminUpdate(data) {
+      return data.keys().hasAll(['id', 'userId', 'customerName', 'customerEmail', 'productType', 'quantity', 'status']) &&
+        data.keys().hasOnly([
+          'id', 'userId', 'customerName', 'customerEmail', 'customerPhone',
+          'productType', 'quantity', 'dimensions', 'paperAndFinish', 'notes',
+          'artworkId', 'artworkFileName', 'status', 'quotedPricePaise',
+          'adminResponse', 'createdAt', 'updatedAt'
+        ]) &&
+        data.status in ['submitted', 'reviewing', 'quoted', 'accepted', 'declined'] &&
+        (!('quotedPricePaise' in data) || (data.quotedPricePaise is int && data.quotedPricePaise >= 0)) &&
+        (!('adminResponse' in data) || (data.adminResponse is string && data.adminResponse.size() <= 1500));
+    }
+
+    function isValidArtworkCreate(data) {
+      return data.keys().hasAll(['id', 'userId', 'fileName', 'contentType', 'sizeBytes', 'storagePath', 'status', 'createdAt']) &&
+        data.keys().hasOnly(['id', 'userId', 'fileName', 'contentType', 'sizeBytes', 'storagePath', 'status', 'createdAt']) &&
+        isValidId(data.id) &&
+        data.userId == request.auth.uid &&
+        data.fileName is string && data.fileName.size() >= 1 && data.fileName.size() <= 240 &&
+        data.contentType in ['application/pdf', 'image/png', 'image/jpeg'] &&
+        data.sizeBytes is int && data.sizeBytes > 0 && data.sizeBytes <= 26214400 &&
+        data.storagePath is string && data.storagePath.size() <= 500 &&
+        data.status == 'uploaded' &&
+        data.createdAt == request.time;
+    }
+
+    function isValidArtworkAdminUpdate(data) {
+      return data.keys().hasAll(['id', 'userId', 'fileName', 'contentType', 'sizeBytes', 'storagePath', 'status', 'createdAt']) &&
+        data.keys().hasOnly(['id', 'userId', 'fileName', 'contentType', 'sizeBytes', 'storagePath', 'status', 'reviewNote', 'createdAt']) &&
+        data.status in ['uploaded', 'approved', 'revision_requested'] &&
+        (!('reviewNote' in data) || (data.reviewNote is string && data.reviewNote.size() <= 500));
+    }
+
+    function isValidStoreSettings(data) {
+      return data.keys().hasAll(['id', 'businessName', 'gstPercentage', 'shippingFeePaise']) &&
+        data.keys().hasOnly([
+          'id', 'businessName', 'tagline', 'proprietorOrEntity', 'address',
+          'email', 'phone', 'businessHours', 'gstPercentage', 'shippingFeePaise',
+          'freeShippingThresholdPaise', 'pickupEnabled', 'shippingEnabled',
+          'maxArtworkSizeMb', 'policies', 'updatedAt'
+        ]) &&
+        isValidId(data.id) &&
+        data.businessName is string && data.businessName.size() >= 2 && data.businessName.size() <= 140 &&
+        (data.gstPercentage is int || data.gstPercentage is float) &&
+        data.shippingFeePaise is int && data.shippingFeePaise >= 0;
+    }
+
+    // 4. Collection Rules
+    match /categories/{categoryId} {
+      allow get: if isValidId(categoryId) && (existing().active == true || isAdmin());
+      allow list: if existing().active == true || isAdmin();
+      allow create: if isAdmin() && isValidId(categoryId) && isValidCategory(incoming()) && incoming().id == categoryId;
+      allow update: if isAdmin() && isValidId(categoryId) && isValidCategory(incoming()) &&
+        incoming().id == existing().id &&
+        incoming().diff(existing()).affectedKeys().hasOnly(['name', 'slug', 'description', 'imageUrl', 'sortOrder', 'active']);
+      allow delete: if isAdmin() && isValidId(categoryId);
+    }
+
+    match /products/{productId} {
+      allow get: if isValidId(productId) && (existing().published == true || isAdmin());
+      allow list: if existing().published == true || isAdmin();
+      allow create: if isAdmin() && isValidId(productId) && isValidProduct(incoming()) && incoming().id == productId;
+      allow update: if isAdmin() && isValidId(productId) && isValidProduct(incoming()) &&
+        incoming().id == existing().id &&
+        incoming().diff(existing()).affectedKeys().hasOnly([
+          'title', 'slug', 'categoryId', 'categoryName', 'shortDescription',
+          'description', 'imageUrl', 'basePricePaise', 'compareAtPricePaise',
+          'turnaroundDays', 'artworkRequired', 'featured', 'published',
+          'optionGroups', 'quantityTiers', 'isSampleData', 'updatedAt'
+        ]);
+      allow delete: if isAdmin() && isValidId(productId);
+    }
+
+    match /settings/{settingId} {
+      allow get: if isValidId(settingId) && (settingId == 'storefront' || isAdmin());
+      allow list: if isAdmin();
+      allow create: if isAdmin() && isValidId(settingId) && isValidStoreSettings(incoming()) && incoming().id == settingId;
+      allow update: if isAdmin() && isValidId(settingId) && isValidStoreSettings(incoming()) &&
+        incoming().id == existing().id &&
+        incoming().diff(existing()).affectedKeys().hasOnly([
+          'businessName', 'tagline', 'proprietorOrEntity', 'address',
+          'email', 'phone', 'businessHours', 'gstPercentage', 'shippingFeePaise',
+          'freeShippingThresholdPaise', 'pickupEnabled', 'shippingEnabled',
+          'maxArtworkSizeMb', 'policies', 'updatedAt'
+        ]);
+      allow delete: if false;
+    }
+
+    match /users/{userId} {
+      allow get: if isValidId(userId) && (isOwner(userId) || isAdmin());
+      allow list: if isAdmin() || (isSignedIn() && existing().uid == request.auth.uid);
+      allow create: if isSignedIn() && isValidId(userId) && isOwner(userId) &&
+        isValidUserProfile(incoming(), userId) &&
+        incoming().createdAt == request.time &&
+        incoming().updatedAt == request.time;
+      allow update: if isSignedIn() && isValidId(userId) && (isOwner(userId) || isAdmin()) &&
+        isValidUserProfile(incoming(), userId) &&
+        incoming().uid == existing().uid &&
+        incoming().createdAt == existing().createdAt &&
+        incoming().updatedAt == request.time &&
+        incoming().diff(existing()).affectedKeys().hasOnly(['displayName', 'phone', 'companyName', 'gstin', 'addresses', 'wishlistProductIds', 'updatedAt']);
+      allow delete: if false;
+    }
+
+    match /admins/{uid} {
+      allow get: if isValidId(uid) && (isOwner(uid) || isAdmin());
+      allow list: if isAdmin();
+      allow create, update, delete: if false;
+    }
+
+    match /orders/{orderId} {
+      allow get: if isValidId(orderId) && isSignedIn() && (existing().userId == request.auth.uid || isAdmin());
+      allow list: if isSignedIn() && (existing().userId == request.auth.uid || isAdmin());
+      allow create, update, delete: if false;
+    }
+
+    match /quotes/{quoteId} {
+      allow get: if isValidId(quoteId) && isSignedIn() && (existing().userId == request.auth.uid || isAdmin());
+      allow list: if isSignedIn() && (existing().userId == request.auth.uid || isAdmin());
+      allow create: if isVerifiedUser() && isValidId(quoteId) && isValidQuoteCreate(incoming()) && incoming().id == quoteId;
+      allow update: if isAdmin() && isValidId(quoteId) && isValidQuoteAdminUpdate(incoming()) &&
+        incoming().id == existing().id &&
+        incoming().userId == existing().userId &&
+        incoming().createdAt == existing().createdAt &&
+        incoming().diff(existing()).affectedKeys().hasOnly(['status', 'quotedPricePaise', 'adminResponse', 'updatedAt']);
+      allow delete: if isAdmin() && isValidId(quoteId);
+    }
+
+    match /artwork_uploads/{uploadId} {
+      allow get: if isValidId(uploadId) && isSignedIn() && (existing().userId == request.auth.uid || isAdmin());
+      allow list: if isSignedIn() && (existing().userId == request.auth.uid || isAdmin());
+      allow create: if isSignedIn() && isValidId(uploadId) && isValidArtworkCreate(incoming()) && incoming().id == uploadId;
+      allow update: if isAdmin() && isValidId(uploadId) && isValidArtworkAdminUpdate(incoming()) &&
+        incoming().id == existing().id &&
+        incoming().userId == existing().userId &&
+        incoming().diff(existing()).affectedKeys().hasOnly(['status', 'reviewNote']);
+      allow delete: if isSignedIn() && isValidId(uploadId) && (existing().userId == request.auth.uid || isAdmin());
+    }
+
+    match /payment_events/{eventId} {
+      allow get, list: if isAdmin();
+      allow create, update, delete: if false;
+    }
+  }
+}

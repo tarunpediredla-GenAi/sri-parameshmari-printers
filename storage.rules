@@ -1,0 +1,45 @@
+rules_version = '2';
+service firebase.storage {
+  match /b/{bucket}/o {
+    function isSignedIn() {
+      return request.auth != null;
+    }
+
+    function isAdmin() {
+      return isSignedIn() && request.auth.token.admin == true;
+    }
+
+    function isAllowedArtworkType() {
+      return request.resource != null &&
+        request.resource.contentType in ['application/pdf', 'image/png', 'image/jpeg'];
+    }
+
+    function isAllowedImageType() {
+      return request.resource != null &&
+        request.resource.contentType in ['image/png', 'image/jpeg', 'image/webp'];
+    }
+
+    // Public catalog product images (admin write only)
+    match /products/{allPaths=**} {
+      allow read: if true;
+      allow write: if isAdmin() && isAllowedImageType() && request.resource.size <= 10 * 1024 * 1024;
+    }
+
+    // Private customer print artwork (strictly owner + admin)
+    match /artwork/{userId}/{allPaths=**} {
+      allow read: if isSignedIn() && (request.auth.uid == userId || isAdmin());
+      allow write: if isSignedIn() && request.auth.uid == userId && isAllowedArtworkType() && request.resource.size <= 25 * 1024 * 1024;
+    }
+
+    // Private quote attachments (strictly owner + admin)
+    match /quotes/{userId}/{allPaths=**} {
+      allow read: if isSignedIn() && (request.auth.uid == userId || isAdmin());
+      allow write: if isSignedIn() && request.auth.uid == userId && isAllowedArtworkType() && request.resource.size <= 25 * 1024 * 1024;
+    }
+
+    // Default deny
+    match /{allPaths=**} {
+      allow read, write: if false;
+    }
+  }
+}

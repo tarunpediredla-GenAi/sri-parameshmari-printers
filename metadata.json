@@ -1,0 +1,6 @@
+{
+  "name": "Sri Parameshmari Printers",
+  "description": "Custom commercial & specialty printing storefront with print option configurator, artwork upload, INR Razorpay checkout, order tracking, custom quotes, and admin console.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}

@@ -1,0 +1,220 @@
+{
+  "entities": {
+    "Category": {
+      "title": "Category",
+      "description": "Print product category displayed in the storefront navigation and shop filters.",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "minLength": 1, "maxLength": 128, "pattern": "^[a-zA-Z0-9_-]+$" },
+        "name": { "type": "string", "minLength": 2, "maxLength": 80 },
+        "slug": { "type": "string", "minLength": 2, "maxLength": 80, "pattern": "^[a-z0-9-]+$" },
+        "description": { "type": "string", "maxLength": 400 },
+        "imageUrl": { "type": "string", "maxLength": 500 },
+        "sortOrder": { "type": "integer" },
+        "active": { "type": "boolean" }
+      },
+      "required": ["id", "name", "slug", "active"]
+    },
+    "Product": {
+      "title": "Product",
+      "description": "Configurable print shop product with print options, quantity packs, turnaround estimate, and INR base price.",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "minLength": 1, "maxLength": 128, "pattern": "^[a-zA-Z0-9_-]+$" },
+        "title": { "type": "string", "minLength": 2, "maxLength": 140 },
+        "slug": { "type": "string", "minLength": 2, "maxLength": 140, "pattern": "^[a-z0-9-]+$" },
+        "categoryId": { "type": "string", "minLength": 1, "maxLength": 128, "pattern": "^[a-zA-Z0-9_-]+$" },
+        "categoryName": { "type": "string", "maxLength": 80 },
+        "shortDescription": { "type": "string", "maxLength": 300 },
+        "description": { "type": "string", "maxLength": 2000 },
+        "imageUrl": { "type": "string", "maxLength": 500 },
+        "basePricePaise": { "type": "integer" },
+        "compareAtPricePaise": { "type": "integer" },
+        "turnaroundDays": { "type": "string", "maxLength": 60 },
+        "artworkRequired": { "type": "boolean" },
+        "featured": { "type": "boolean" },
+        "published": { "type": "boolean" },
+        "optionGroups": { "type": "array" },
+        "quantityTiers": { "type": "array" },
+        "isSampleData": { "type": "boolean" },
+        "updatedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["id", "title", "categoryId", "basePricePaise", "published"]
+    },
+    "UserProfile": {
+      "title": "UserProfile",
+      "description": "Customer profile and saved shipping addresses isolated to the owning user or admins.",
+      "type": "object",
+      "properties": {
+        "uid": { "type": "string", "minLength": 1, "maxLength": 128, "pattern": "^[a-zA-Z0-9_-]+$" },
+        "email": { "type": "string", "format": "email", "maxLength": 200 },
+        "displayName": { "type": "string", "maxLength": 120 },
+        "phone": { "type": "string", "maxLength": 30 },
+        "companyName": { "type": "string", "maxLength": 120 },
+        "gstin": { "type": "string", "maxLength": 20 },
+        "addresses": { "type": "array" },
+        "wishlistProductIds": { "type": "array" },
+        "createdAt": { "type": "string", "format": "date-time" },
+        "updatedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["uid", "email"]
+    },
+    "AdminMarker": {
+      "title": "AdminMarker",
+      "description": "Server-managed admin registry document keyed by Firebase Auth UID.",
+      "type": "object",
+      "properties": {
+        "uid": { "type": "string", "minLength": 1, "maxLength": 128, "pattern": "^[a-zA-Z0-9_-]+$" },
+        "email": { "type": "string", "format": "email", "maxLength": 200 },
+        "grantedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["uid", "email"]
+    },
+    "Order": {
+      "title": "Order",
+      "description": "Immutable server-calculated print order with separate paymentStatus and fulfillmentStatus.",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "minLength": 1, "maxLength": 128, "pattern": "^[a-zA-Z0-9_-]+$" },
+        "orderNumber": { "type": "string", "maxLength": 40 },
+        "userId": { "type": "string", "minLength": 1, "maxLength": 128, "pattern": "^[a-zA-Z0-9_-]+$" },
+        "customerEmail": { "type": "string", "format": "email", "maxLength": 200 },
+        "customerName": { "type": "string", "maxLength": 120 },
+        "customerPhone": { "type": "string", "maxLength": 30 },
+        "deliveryMethod": { "type": "string", "enum": ["shipping", "pickup"] },
+        "shippingAddress": { "type": "object" },
+        "items": { "type": "array" },
+        "subtotalPaise": { "type": "integer" },
+        "shippingPaise": { "type": "integer" },
+        "taxPaise": { "type": "integer" },
+        "totalPaise": { "type": "integer" },
+        "currency": { "type": "string", "enum": ["INR"] },
+        "paymentStatus": { "type": "string", "enum": ["pending", "paid", "failed", "refunded"] },
+        "fulfillmentStatus": {
+          "type": "string",
+          "enum": ["awaiting_payment", "artwork_review", "printing", "ready_for_pickup", "shipped", "completed"]
+        },
+        "razorpayOrderId": { "type": "string", "maxLength": 120 },
+        "razorpayPaymentId": { "type": "string", "maxLength": 120 },
+        "createdAt": { "type": "string", "format": "date-time" },
+        "updatedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["id", "orderNumber", "userId", "totalPaise", "currency", "paymentStatus", "fulfillmentStatus"]
+    },
+    "QuoteRequest": {
+      "title": "QuoteRequest",
+      "description": "Custom print quote request with specifications, optional artwork attachment, and admin quote response.",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "minLength": 1, "maxLength": 128, "pattern": "^[a-zA-Z0-9_-]+$" },
+        "userId": { "type": "string", "minLength": 1, "maxLength": 128, "pattern": "^[a-zA-Z0-9_-]+$" },
+        "customerName": { "type": "string", "minLength": 2, "maxLength": 120 },
+        "customerEmail": { "type": "string", "format": "email", "maxLength": 200 },
+        "customerPhone": { "type": "string", "minLength": 6, "maxLength": 30 },
+        "productType": { "type": "string", "minLength": 2, "maxLength": 120 },
+        "quantity": { "type": "integer" },
+        "dimensions": { "type": "string", "maxLength": 120 },
+        "paperAndFinish": { "type": "string", "maxLength": 200 },
+        "notes": { "type": "string", "maxLength": 2000 },
+        "artworkId": { "type": "string", "maxLength": 128 },
+        "artworkFileName": { "type": "string", "maxLength": 200 },
+        "status": { "type": "string", "enum": ["submitted", "reviewing", "quoted", "accepted", "declined"] },
+        "quotedPricePaise": { "type": "integer" },
+        "adminResponse": { "type": "string", "maxLength": 1500 },
+        "createdAt": { "type": "string", "format": "date-time" },
+        "updatedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["id", "userId", "customerName", "customerEmail", "productType", "quantity", "status"]
+    },
+    "ArtworkUpload": {
+      "title": "ArtworkUpload",
+      "description": "Private customer artwork metadata record bound to owner UID and order or quote.",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "minLength": 1, "maxLength": 128, "pattern": "^[a-zA-Z0-9_-]+$" },
+        "userId": { "type": "string", "minLength": 1, "maxLength": 128, "pattern": "^[a-zA-Z0-9_-]+$" },
+        "fileName": { "type": "string", "maxLength": 240 },
+        "contentType": { "type": "string", "enum": ["application/pdf", "image/png", "image/jpeg"] },
+        "sizeBytes": { "type": "integer" },
+        "storagePath": { "type": "string", "maxLength": 500 },
+        "status": { "type": "string", "enum": ["uploaded", "approved", "revision_requested"] },
+        "reviewNote": { "type": "string", "maxLength": 500 },
+        "createdAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["id", "userId", "fileName", "contentType", "sizeBytes", "storagePath"]
+    },
+    "StoreSettings": {
+      "title": "StoreSettings",
+      "description": "Configurable shop contact details, hours, shipping/pickup fees, GST rate, and policies.",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "minLength": 1, "maxLength": 128, "pattern": "^[a-zA-Z0-9_-]+$" },
+        "businessName": { "type": "string", "maxLength": 140 },
+        "tagline": { "type": "string", "maxLength": 200 },
+        "proprietorOrEntity": { "type": "string", "maxLength": 160 },
+        "address": { "type": "string", "maxLength": 400 },
+        "email": { "type": "string", "maxLength": 200 },
+        "phone": { "type": "string", "maxLength": 40 },
+        "businessHours": { "type": "string", "maxLength": 160 },
+        "gstPercentage": { "type": "number" },
+        "shippingFeePaise": { "type": "integer" },
+        "freeShippingThresholdPaise": { "type": "integer" },
+        "pickupEnabled": { "type": "boolean" },
+        "shippingEnabled": { "type": "boolean" },
+        "maxArtworkSizeMb": { "type": "integer" }
+      },
+      "required": ["id", "businessName", "gstPercentage", "shippingFeePaise"]
+    },
+    "PaymentEvent": {
+      "title": "PaymentEvent",
+      "description": "Idempotency audit record for Razorpay payment verification and webhook events.",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "minLength": 1, "maxLength": 128, "pattern": "^[a-zA-Z0-9_-]+$" },
+        "eventType": { "type": "string", "maxLength": 80 },
+        "razorpayOrderId": { "type": "string", "maxLength": 120 },
+        "razorpayPaymentId": { "type": "string", "maxLength": 120 },
+        "processedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["id", "eventType", "razorpayOrderId"]
+    }
+  },
+  "firestore": {
+    "/categories/{categoryId}": {
+      "schema": { "$ref": "#/entities/Category" },
+      "description": "Published print categories for storefront browsing."
+    },
+    "/products/{productId}": {
+      "schema": { "$ref": "#/entities/Product" },
+      "description": "Print shop catalog products and configurable print options."
+    },
+    "/users/{userId}": {
+      "schema": { "$ref": "#/entities/UserProfile" },
+      "description": "Customer profiles, saved addresses, and wishlists."
+    },
+    "/admins/{uid}": {
+      "schema": { "$ref": "#/entities/AdminMarker" },
+      "description": "Server-provisioned admin authorization markers."
+    },
+    "/orders/{orderId}": {
+      "schema": { "$ref": "#/entities/Order" },
+      "description": "Server-validated customer orders with payment and fulfillment states."
+    },
+    "/quotes/{quoteId}": {
+      "schema": { "$ref": "#/entities/QuoteRequest" },
+      "description": "Custom print quote requests submitted by customers."
+    },
+    "/artwork_uploads/{uploadId}": {
+      "schema": { "$ref": "#/entities/ArtworkUpload" },
+      "description": "Private customer print artwork metadata."
+    },
+    "/settings/{settingId}": {
+      "schema": { "$ref": "#/entities/StoreSettings" },
+      "description": "Configurable storefront contact details, tax/delivery rules, and policies."
+    },
+    "/payment_events/{eventId}": {
+      "schema": { "$ref": "#/entities/PaymentEvent" },
+      "description": "Server-only Razorpay webhook and verification idempotency log."
+    }
+  }
+}
