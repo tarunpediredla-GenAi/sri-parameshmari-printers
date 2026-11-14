@@ -4,6 +4,8 @@ import crypto from 'node:crypto';
 import type { Order } from '../src/types/print';
 import {
   applyVerifiedPaymentTransition,
+  extractRazorpayErrorMessage,
+  validateRazorpayOrderAmount,
   verifyRazorpayCheckoutSignature,
   verifyRazorpayWebhookSignature,
 } from './razorpayUtils';
@@ -133,4 +135,22 @@ test('applyVerifiedPaymentTransition rejects tampered amount and handles out-of-
   });
   assert.equal(outOfOrder.order.paymentStatus, 'paid');
   assert.equal(outOfOrder.order.fulfillmentStatus, 'completed');
+});
+
+test('validateRazorpayOrderAmount enforces >= 100 paise integer amounts', () => {
+  assert.doesNotThrow(() => validateRazorpayOrderAmount(100));
+  assert.doesNotThrow(() => validateRazorpayOrderAmount(500000));
+  assert.throws(() => validateRazorpayOrderAmount(99));
+  assert.throws(() => validateRazorpayOrderAmount(0));
+  assert.throws(() => validateRazorpayOrderAmount(-100));
+  assert.throws(() => validateRazorpayOrderAmount(100.5));
+});
+
+test('extractRazorpayErrorMessage handles Razorpay SDK error objects and standard Errors', () => {
+  assert.equal(
+    extractRazorpayErrorMessage({ statusCode: 401, error: { description: 'Authentication failed' } }, 'fallback'),
+    'Authentication failed'
+  );
+  assert.equal(extractRazorpayErrorMessage(new Error('Network timeout'), 'fallback'), 'Network timeout');
+  assert.equal(extractRazorpayErrorMessage(null, 'fallback'), 'fallback');
 });

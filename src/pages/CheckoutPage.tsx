@@ -11,16 +11,11 @@ import {
 import { useStore } from '../context/StoreContext';
 import { apiFetch } from '../lib/api';
 import { calculateOrderTotals, formatInrFromPaise } from '../lib/pricing';
+import {
+  ensureRazorpayCheckoutLoaded,
+  extractRazorpayFailureMessage,
+} from '../lib/razorpayClient';
 import type { Order } from '../types/print';
-
-declare global {
-  interface Window {
-    Razorpay?: new (options: Record<string, unknown>) => {
-      open: () => void;
-      on: (event: string, cb: (res: unknown) => void) => void;
-    };
-  }
-}
 
 export default function CheckoutPage() {
   const {
@@ -53,19 +48,33 @@ export default function CheckoutPage() {
   const totals = calculateOrderTotals(cart, 'digital', settings);
   const razorpayReady = Boolean(configStatus?.razorpayConfigured);
 
-  const openRazorpayModal = (
+  const openRazorpayModal = async (
     order: Order,
     rzpParams: { keyId: string; orderId: string; amountPaise: number; currency: string },
     token: string
   ) => {
-    if (!window.Razorpay) {
-      setError('Razorpay Checkout script failed to load. Please refresh the page.');
+    let RazorpayCtor: Awaited<ReturnType<typeof ensureRazorpayCheckoutLoaded>>;
+    try {
+      RazorpayCtor = await ensureRazorpayCheckoutLoaded();
+    } catch (loadErr) {
+      setError(
+        loadErr instanceof Error
+          ? loadErr.message
+          : 'Razorpay Checkout script failed to load. Please refresh the page.'
+      );
       setSubmitting(false);
       return;
     }
 
-    const rzp = new window.Razorpay({
-      key: rzpParams.keyId,
+    const publicKeyId = rzpParams.keyId || import.meta.env.VITE_RAZORPAY_KEY_ID;
+    if (!publicKeyId) {
+      setError('Razorpay public Key ID is missing. Please contact support.');
+      setSubmitting(false);
+      return;
+    }
+
+    const rzp = new RazorpayCtor({
+      key: publicKeyId,
       amount: rzpParams.amountPaise,
       currency: rzpParams.currency,
       name: settings.businessName,
@@ -79,11 +88,7 @@ export default function CheckoutPage() {
       theme: {
         color: '#3A261B',
       },
-      handler: async (response: {
-        razorpay_payment_id: string;
-        razorpay_order_id: string;
-        razorpay_signature: string;
-      }) => {
+      handler: async (response) => {
         try {
           const verified = await apiFetch<{ order: Order }>(
             `/api/orders/${order.id}/verify-payment`,
@@ -115,13 +120,7 @@ export default function CheckoutPage() {
     });
 
     rzp.on('payment.failed', async (failRes: unknown) => {
-      const msg =
-        typeof failRes === 'object' &&
-        failRes !== null &&
-        'error' in failRes &&
-        typeof (failRes as { error?: { description?: string } }).error?.description === 'string'
-          ? (failRes as { error: { description: string } }).error.description
-          : 'Razorpay payment failed.';
+      const msg = extractRazorpayFailureMessage(failRes);
 
       try {
         const failed = await apiFetch<{ order: Order }>(
@@ -187,7 +186,7 @@ export default function CheckoutPage() {
       );
 
       setPendingOrder(res.order);
-      openRazorpayModal(res.order, res.razorpay, token);
+      await openRazorpayModal(res.order, res.razorpay, token);
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Unable to start checkout.');
       setSubmitting(false);
@@ -206,7 +205,7 @@ export default function CheckoutPage() {
         razorpay: { keyId: string; orderId: string; amountPaise: number; currency: string };
       }>(`/api/orders/${pendingOrder.id}/retry-payment`, { method: 'POST' }, token);
       setPendingOrder(res.order);
-      openRazorpayModal(res.order, res.razorpay, token);
+      await openRazorpayModal(res.order, res.razorpay, token);
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Retry failed.');
       setSubmitting(false);
@@ -265,7 +264,7 @@ export default function CheckoutPage() {
         </h1>
       </div>
 
-      {!razorpayReady && (
+      {configStatus !== null && !razorpayReady && (
         <div
           role="alert"
           className="rounded-2xl border border-amber-300 bg-amber-50 p-5 flex items-start gap-3 text-amber-950"

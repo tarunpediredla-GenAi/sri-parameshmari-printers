@@ -1,6 +1,35 @@
 import crypto from 'node:crypto';
 import type { Order } from '../src/types/print';
 
+export const MIN_RAZORPAY_AMOUNT_PAISE = 100;
+
+export function validateRazorpayOrderAmount(amountPaise: number): void {
+  if (!Number.isInteger(amountPaise) || amountPaise < MIN_RAZORPAY_AMOUNT_PAISE) {
+    throw new Error(
+      `Minimum order amount for Razorpay is ${MIN_RAZORPAY_AMOUNT_PAISE} paise (₹1.00).`
+    );
+  }
+}
+
+export function extractRazorpayErrorMessage(err: unknown, fallback: string): string {
+  if (err instanceof Error && err.message.trim()) {
+    return err.message.trim();
+  }
+  if (typeof err === 'object' && err !== null) {
+    const maybeErr = err as {
+      error?: { description?: unknown; reason?: unknown; code?: unknown };
+      message?: unknown;
+    };
+    if (typeof maybeErr.error?.description === 'string' && maybeErr.error.description.trim()) {
+      return maybeErr.error.description.trim();
+    }
+    if (typeof maybeErr.message === 'string' && maybeErr.message.trim()) {
+      return maybeErr.message.trim();
+    }
+  }
+  return fallback;
+}
+
 export function verifyRazorpayCheckoutSignature(
   razorpayOrderId: string,
   razorpayPaymentId: string,

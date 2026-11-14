@@ -15,6 +15,10 @@ import {
 import { useStore } from '../context/StoreContext';
 import { apiFetch, fetchAuthorizedArtworkBlobUrl } from '../lib/api';
 import { FULFILLMENT_LABELS, formatInrFromPaise } from '../lib/pricing';
+import {
+  ensureRazorpayCheckoutLoaded,
+  extractRazorpayFailureMessage,
+} from '../lib/razorpayClient';
 import type { FulfillmentStatus, Order } from '../types/print';
 
 export default function OrderDetailPage() {
@@ -84,10 +88,11 @@ export default function OrderDetailPage() {
   };
 
   const handleRetryPayment = async () => {
-    if (!order || !window.Razorpay) return;
+    if (!order) return;
     setBusy(true);
     setError(null);
     try {
+      const RazorpayCtor = await ensureRazorpayCheckoutLoaded();
       const token = await getFreshToken();
       if (!token) throw new Error('Sign in required.');
       const res = await apiFetch<{
@@ -95,25 +100,66 @@ export default function OrderDetailPage() {
         razorpay: { keyId: string; orderId: string; amountPaise: number; currency: string };
       }>(`/api/orders/${order.id}/retry-payment`, { method: 'POST' }, token);
 
-      const rzp = new window.Razorpay({
-        key: res.razorpay.keyId,
+      const publicKeyId = res.razorpay.keyId || import.meta.env.VITE_RAZORPAY_KEY_ID;
+      if (!publicKeyId) {
+        throw new Error('Razorpay public Key ID is missing.');
+      }
+
+      const rzp = new RazorpayCtor({
+        key: publicKeyId,
         amount: res.razorpay.amountPaise,
         currency: res.razorpay.currency,
         name: settings.businessName,
         description: `Retry Payment for ${order.orderNumber}`,
         order_id: res.razorpay.orderId,
+        prefill: {
+          name: order.customerName,
+          email: order.customerEmail,
+          contact: order.customerPhone,
+        },
         theme: { color: '#3A261B' },
-        handler: async (response: Record<string, string>) => {
-          const verified = await apiFetch<{ order: Order }>(
-            `/api/orders/${order.id}/verify-payment`,
-            { method: 'POST', body: JSON.stringify(response) },
+        handler: async (response) => {
+          try {
+            const verified = await apiFetch<{ order: Order }>(
+              `/api/orders/${order.id}/verify-payment`,
+              { method: 'POST', body: JSON.stringify(response) },
+              token
+            );
+            setOrder(verified.order);
+          } catch (verifyErr) {
+            setError(
+              verifyErr instanceof Error
+                ? verifyErr.message
+                : 'Payment verification failed. Try Check Payment Status.'
+            );
+          } finally {
+            setBusy(false);
+          }
+        },
+        modal: {
+          ondismiss: () => {
+            setBusy(false);
+            setError('Payment window closed before completion. You can retry anytime.');
+          },
+        },
+      });
+
+      rzp.on('payment.failed', async (failRes: unknown) => {
+        const msg = extractRazorpayFailureMessage(failRes);
+        try {
+          const failed = await apiFetch<{ order: Order }>(
+            `/api/orders/${order.id}/mark-failed`,
+            { method: 'POST', body: JSON.stringify({ reason: msg }) },
             token
           );
-          setOrder(verified.order);
-          setBusy(false);
-        },
-        modal: { ondismiss: () => setBusy(false) },
+          setOrder(failed.order);
+        } catch {
+          // ignore
+        }
+        setError(msg);
+        setBusy(false);
       });
+
       rzp.open();
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Unable to retry payment.');

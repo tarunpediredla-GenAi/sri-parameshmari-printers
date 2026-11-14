@@ -102,10 +102,10 @@ export default function AuthModal() {
       role="dialog"
       aria-modal="true"
       aria-labelledby="auth-modal-title"
-      className="fixed inset-0 z-50 flex items-center justify-center bg-[#231710]/70 backdrop-blur-sm p-4"
+      className="fixed inset-0 z-50 flex items-center justify-center bg-[#231710]/70 backdrop-blur-sm p-4 overflow-y-auto"
     >
-      <div className="w-full max-w-md bg-white rounded-2xl shadow-2xl border border-[#DCE4DB] overflow-hidden">
-        <div className="bg-gradient-to-r from-[#2B1D14] to-[#354E41] text-white px-6 py-5 flex items-center justify-between">
+      <div className="w-full max-w-md max-h-[90vh] flex flex-col bg-white rounded-2xl shadow-2xl border border-[#DCE4DB] overflow-hidden">
+        <div className="bg-gradient-to-r from-[#2B1D14] to-[#354E41] text-white px-6 py-5 flex items-center justify-between shrink-0">
           <div>
             <h2 id="auth-modal-title" className="font-editorial text-xl font-bold">
               {authModalMode === 'login'
@@ -126,17 +126,17 @@ export default function AuthModal() {
             type="button"
             onClick={closeAuthModal}
             aria-label="Close authentication modal"
-            className="w-8 h-8 rounded-lg bg-white/10 hover:bg-white/20 flex items-center justify-center text-white"
+            className="w-8 h-8 rounded-lg bg-white/10 hover:bg-white/20 flex items-center justify-center text-white shrink-0"
           >
             <X className="w-4 h-4" />
           </button>
         </div>
 
-        <div className="p-6 space-y-4">
+        <div className="p-6 space-y-4 overflow-y-auto">
           {error && (
-            <div className="flex items-start gap-2.5 p-3 rounded-lg bg-red-50 border border-red-200 text-red-800 text-sm">
+            <div className="flex items-start gap-2.5 p-3 rounded-lg bg-red-50 border border-red-200 text-red-800 text-sm break-words">
               <AlertCircle className="w-4 h-4 shrink-0 mt-0.5" />
-              <span>{error}</span>
+              <span className="min-w-0 break-words">{error}</span>
             </div>
           )}
 

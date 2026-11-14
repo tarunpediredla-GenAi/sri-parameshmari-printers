@@ -28,6 +28,8 @@ import {
 } from './server/firebaseAdmin';
 import {
   applyVerifiedPaymentTransition,
+  extractRazorpayErrorMessage,
+  validateRazorpayOrderAmount,
   verifyRazorpayCheckoutSignature,
   verifyRazorpayWebhookSignature,
 } from './server/razorpayUtils';
@@ -505,18 +507,31 @@ export function createApiApp() {
         settings
       );
 
+      validateRazorpayOrderAmount(totals.totalPaise);
+
       const orderId = `ord_${crypto.randomUUID().replace(/-/g, '').slice(0, 14)}`;
       const orderNumber = `SPP-${new Date().getFullYear()}-${Math.floor(100000 + Math.random() * 900000)}`;
 
-      const rzpOrder = await rzp.client.orders.create({
-        amount: totals.totalPaise,
-        currency: 'INR',
-        receipt: orderNumber,
-        notes: {
-          internalOrderId: orderId,
-          userId: user.uid,
-        },
-      });
+      let rzpOrder: { id: string };
+      try {
+        rzpOrder = await rzp.client.orders.create({
+          amount: totals.totalPaise,
+          currency: 'INR',
+          receipt: orderNumber,
+          notes: {
+            internalOrderId: orderId,
+            userId: user.uid,
+          },
+        });
+      } catch (rzpErr) {
+        res.status(500).json({
+          error: extractRazorpayErrorMessage(
+            rzpErr,
+            'Razorpay order creation failed. Please try again.'
+          ),
+        });
+        return;
+      }
 
       const now = new Date().toISOString();
       const newOrder: Order = {
@@ -585,13 +600,19 @@ export function createApiApp() {
         return;
       }
 
-      const { razorpay_payment_id, razorpay_signature } = req.body as {
+      const { razorpay_order_id, razorpay_payment_id, razorpay_signature } = req.body as {
+        razorpay_order_id?: string;
         razorpay_payment_id?: string;
         razorpay_signature?: string;
       };
 
       if (!order.razorpayOrderId || !razorpay_payment_id || !razorpay_signature) {
         res.status(400).json({ error: 'Missing Razorpay payment confirmation fields.' });
+        return;
+      }
+
+      if (razorpay_order_id && razorpay_order_id !== order.razorpayOrderId) {
+        res.status(400).json({ error: 'Razorpay order ID mismatch.' });
         return;
       }
 
@@ -608,7 +629,24 @@ export function createApiApp() {
       }
 
       // 2. Fetch live payment record from Razorpay API to verify order, amount, currency, and captured status
-      const payment = await rzp.client.payments.fetch(razorpay_payment_id);
+      let payment: {
+        id: string;
+        order_id: string | null;
+        amount: string | number;
+        currency: string;
+        status: string;
+      };
+      try {
+        payment = await rzp.client.payments.fetch(razorpay_payment_id);
+      } catch (rzpErr) {
+        res.status(500).json({
+          error: extractRazorpayErrorMessage(
+            rzpErr,
+            'Failed to fetch payment confirmation from Razorpay.'
+          ),
+        });
+        return;
+      }
       if (payment.order_id !== order.razorpayOrderId) {
         res.status(400).json({ error: 'Payment does not match the server Razorpay order ID.' });
         return;
@@ -673,12 +711,25 @@ export function createApiApp() {
         return;
       }
 
-      const rzpOrder = await rzp.client.orders.create({
-        amount: order.totalPaise,
-        currency: 'INR',
-        receipt: `${order.orderNumber}-R${Date.now().toString().slice(-4)}`,
-        notes: { internalOrderId: order.id, userId: user.uid, retry: 'true' },
-      });
+      validateRazorpayOrderAmount(order.totalPaise);
+
+      let rzpOrder: { id: string };
+      try {
+        rzpOrder = await rzp.client.orders.create({
+          amount: order.totalPaise,
+          currency: 'INR',
+          receipt: `${order.orderNumber}-R${Date.now().toString().slice(-4)}`,
+          notes: { internalOrderId: order.id, userId: user.uid, retry: 'true' },
+        });
+      } catch (rzpErr) {
+        res.status(500).json({
+          error: extractRazorpayErrorMessage(
+            rzpErr,
+            'Razorpay retry order creation failed. Please try again.'
+          ),
+        });
+        return;
+      }
 
       const updated: Order = {
         ...order,
