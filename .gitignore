@@ -9,5 +9,3 @@ coverage/
 data/
 uploads/
 .playwright-cli/
-
-/server/vercel-app.mjs

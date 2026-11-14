@@ -1,10 +1,10 @@
-import { SAMPLE_PRODUCTS } from './sampleProducts';
 import fs from 'node:fs';
 import path from 'node:path';
 import { getStorage } from 'firebase-admin/storage';
 import {
   DEFAULT_STORE_SETTINGS,
   SAMPLE_CATEGORIES,
+  SAMPLE_PRODUCTS,
 } from '../src/lib/catalogDefaults';
 import type {
   Category,
@@ -133,7 +133,7 @@ export async function getCatalogData(): Promise<{
     }
   }
 
-  const state = process.env.VERCEL === '1' ? defaultState() : readLocalState();
+  const state = readLocalState();
   return {
     categories: state.categories,
     products: state.products,
@@ -145,7 +145,6 @@ export async function saveProduct(product: Product): Promise<Product> {
   const db = getFirestoreIfReady();
   if (db) {
     await db.collection('products').doc(product.id).set(product);
-    return product;
   }
   const state = readLocalState();
   const idx = state.products.findIndex((p) => p.id === product.id);
@@ -162,7 +161,6 @@ export async function deleteProduct(productId: string): Promise<void> {
   const db = getFirestoreIfReady();
   if (db) {
     await db.collection('products').doc(productId).delete();
-    return;
   }
   const state = readLocalState();
   state.products = state.products.filter((p) => p.id !== productId);
@@ -173,7 +171,6 @@ export async function saveCategory(category: Category): Promise<Category> {
   const db = getFirestoreIfReady();
   if (db) {
     await db.collection('categories').doc(category.id).set(category);
-    return category;
   }
   const state = readLocalState();
   const idx = state.categories.findIndex((c) => c.id === category.id);
@@ -191,7 +188,6 @@ export async function deleteCategory(categoryId: string): Promise<void> {
   const db = getFirestoreIfReady();
   if (db) {
     await db.collection('categories').doc(categoryId).delete();
-    return;
   }
   const state = readLocalState();
   state.categories = state.categories.filter((c) => c.id !== categoryId);
@@ -202,7 +198,6 @@ export async function saveStoreSettings(settings: StoreSettings): Promise<StoreS
   const db = getFirestoreIfReady();
   if (db) {
     await db.collection('settings').doc('storefront').set(settings);
-    return settings;
   }
   const state = readLocalState();
   state.settings = settings;
@@ -214,23 +209,6 @@ export async function saveArtworkRecord(
   record: ArtworkRecord,
   buffer: Buffer
 ): Promise<ArtworkRecord> {
-  const db = getFirestoreIfReady();
-  if (db) {
-    const { app, storageBucket } = initFirebaseAdmin();
-    if (!app || !storageBucket) {
-      throw new Error('Firebase Storage must be configured before uploading artwork.');
-    }
-    const file = getStorage(app).bucket(storageBucket).file(record.storagePath);
-    await file.save(buffer, { contentType: record.contentType, resumable: false });
-    try {
-      await db.collection('artwork_uploads').doc(record.id).set(record);
-    } catch (error) {
-      await file.delete({ ignoreNotFound: true }).catch(() => {});
-      throw error;
-    }
-    return record;
-  }
-
   ensureDirs();
   const userDir = path.join(PRIVATE_ARTWORK_DIR, record.userId);
   if (!fs.existsSync(userDir)) {
@@ -239,6 +217,21 @@ export async function saveArtworkRecord(
   const safeName = record.fileName.replace(/[^a-zA-Z0-9._-]/g, '_');
   const localPath = path.join(userDir, `${record.id}_${safeName}`);
   fs.writeFileSync(localPath, buffer);
+
+  const db = getFirestoreIfReady();
+  if (db) {
+    try {
+      const { app, config } = initFirebaseAdmin();
+      if (app && config.storageBucket) {
+        const bucket = getStorage(app).bucket(config.storageBucket);
+        const file = bucket.file(record.storagePath);
+        await file.save(buffer, { contentType: record.contentType, resumable: false });
+      }
+      await db.collection('artwork_uploads').doc(record.id).set(record);
+    } catch (err) {
+      console.warn('Firebase Storage/Firestore artwork notice:', err instanceof Error ? err.message : err);
+    }
+  }
 
   const state = readLocalState();
   state.artworks.push(record);
@@ -253,7 +246,6 @@ export async function getArtworkRecord(artworkId: string): Promise<ArtworkRecord
     if (snap.exists) {
       return snap.data() as ArtworkRecord;
     }
-    return null;
   }
   const state = readLocalState();
   return state.artworks.find((a) => a.id === artworkId) || null;
@@ -267,7 +259,6 @@ export async function updateArtworkStatus(
   const db = getFirestoreIfReady();
   if (db) {
     await db.collection('artwork_uploads').doc(artworkId).update({ status, reviewNote: reviewNote || '' });
-    return getArtworkRecord(artworkId);
   }
   const state = readLocalState();
   const item = state.artworks.find((a) => a.id === artworkId);
@@ -290,9 +281,9 @@ export async function readArtworkBuffer(record: ArtworkRecord): Promise<Buffer |
   const db = getFirestoreIfReady();
   if (db) {
     try {
-      const { app, storageBucket } = initFirebaseAdmin();
-      if (app && storageBucket) {
-        const [buf] = await getStorage(app).bucket(storageBucket).file(record.storagePath).download();
+      const { app, config } = initFirebaseAdmin();
+      if (app && config.storageBucket) {
+        const [buf] = await getStorage(app).bucket(config.storageBucket).file(record.storagePath).download();
         return buf;
       }
     } catch {
@@ -306,7 +297,6 @@ export async function saveOrder(order: Order): Promise<Order> {
   const db = getFirestoreIfReady();
   if (db) {
     await db.collection('orders').doc(order.id).set(order);
-    return order;
   }
   const state = readLocalState();
   const idx = state.orders.findIndex((o) => o.id === order.id);
@@ -326,7 +316,6 @@ export async function getOrderById(orderId: string): Promise<Order | null> {
     if (snap.exists) {
       return snap.data() as Order;
     }
-    return null;
   }
   const state = readLocalState();
   return state.orders.find((o) => o.id === orderId) || null;
@@ -343,7 +332,6 @@ export async function getOrderByRazorpayOrderId(razorpayOrderId: string): Promis
     if (!snap.empty) {
       return snap.docs[0].data() as Order;
     }
-    return null;
   }
   const state = readLocalState();
   return state.orders.find((o) => o.razorpayOrderId === razorpayOrderId) || null;
@@ -401,7 +389,6 @@ export async function saveQuote(quote: QuoteRequest): Promise<QuoteRequest> {
   const db = getFirestoreIfReady();
   if (db) {
     await db.collection('quotes').doc(quote.id).set(quote);
-    return quote;
   }
   const state = readLocalState();
   const idx = state.quotes.findIndex((q) => q.id === quote.id);
@@ -421,7 +408,6 @@ export async function getQuoteById(quoteId: string): Promise<QuoteRequest | null
     if (snap.exists) {
       return snap.data() as QuoteRequest;
     }
-    return null;
   }
   const state = readLocalState();
   return state.quotes.find((q) => q.id === quoteId) || null;
@@ -461,6 +447,10 @@ export async function getUserProfile(uid: string, email: string): Promise<UserPr
       return snap.data() as UserProfile;
     }
   }
+  const state = readLocalState();
+  if (state.profiles[uid]) {
+    return state.profiles[uid];
+  }
   const now = new Date().toISOString();
   const created: UserProfile = {
     uid,
@@ -470,13 +460,6 @@ export async function getUserProfile(uid: string, email: string): Promise<UserPr
     createdAt: now,
     updatedAt: now,
   };
-  if (db) {
-    return created;
-  }
-  const state = readLocalState();
-  if (state.profiles[uid]) {
-    return state.profiles[uid];
-  }
   state.profiles[uid] = created;
   writeLocalState(state);
   return created;
@@ -486,7 +469,6 @@ export async function saveUserProfile(profile: UserProfile): Promise<UserProfile
   const db = getFirestoreIfReady();
   if (db) {
     await db.collection('users').doc(profile.uid).set(profile, { merge: true });
-    return profile;
   }
   const state = readLocalState();
   state.profiles[profile.uid] = profile;

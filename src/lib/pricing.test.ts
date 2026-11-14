@@ -11,20 +11,54 @@ import {
 } from './pricing';
 
 test('calculateItemPricing computes exact integer paise for valid options and tier', () => {
-  const websiteProduct = SAMPLE_PRODUCTS[0]; // base 149900
+  const websiteProduct = SAMPLE_PRODUCTS[0]; // base 1500000 (₹15,000)
   const priced = calculateItemPricing(
     websiteProduct,
     {
-      scope: 'multi-store', // +50000
-      style: 'minimal-editorial', // +20000
-      delivery: 'tailored', // +40000, +1d
+      scope: 'multi-store', // +500000
+      style: 'minimal-editorial', // +200000
+      delivery: 'tailored', // +300000, +1d
     },
-    3 // multiplier 1.75
+    3 // multiplier 1.4
   );
-  // (149900 + 50000 + 20000 + 40000) * 1.75 = 259900 * 1.75 = 454825
-  assert.equal(priced.unitPackPricePaise, 454825);
+  // (1500000 + 500000 + 200000 + 300000) * 1.4 = 2500000 * 1.4 = 3500000 (₹35,000)
+  assert.equal(priced.unitPackPricePaise, 3500000);
   assert.match(priced.turnaroundDays, /\+1d custom/);
   assert.equal(priced.selectedOptionLabels.scope, 'Multi-Page Storefront Prompt');
+});
+
+test('all sample product prices and pack configurations stay between ₹5,000 and ₹50,000', () => {
+  const minPaise = 500000;
+  const maxPaise = 5000000;
+
+  for (const product of SAMPLE_PRODUCTS) {
+    assert.ok(
+      product.basePricePaise >= minPaise && product.basePricePaise <= maxPaise,
+      `${product.id} base price ${product.basePricePaise} out of ₹5,000–₹50,000 range`
+    );
+
+    const minChoiceSum = product.optionGroups.reduce(
+      (sum, g) => sum + Math.min(...g.choices.map((c) => c.priceDeltaPaise)),
+      0
+    );
+    const maxChoiceSum = product.optionGroups.reduce(
+      (sum, g) => sum + Math.max(...g.choices.map((c) => c.priceDeltaPaise)),
+      0
+    );
+
+    for (const tier of product.quantityTiers) {
+      const lowestPack = Math.round((product.basePricePaise + minChoiceSum) * tier.multiplier);
+      const highestPack = Math.round((product.basePricePaise + maxChoiceSum) * tier.multiplier);
+      assert.ok(
+        lowestPack >= minPaise,
+        `${product.id} tier ${tier.quantity} min pack ${lowestPack} < ₹5,000`
+      );
+      assert.ok(
+        highestPack <= maxPaise,
+        `${product.id} tier ${tier.quantity} max pack ${highestPack} > ₹50,000`
+      );
+    }
+  }
 });
 
 test('calculateItemPricing rejects tampered option or quantity tier', () => {
