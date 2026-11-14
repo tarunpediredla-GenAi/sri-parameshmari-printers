@@ -1097,7 +1097,7 @@ export default function AdminPage() {
           className="bg-white rounded-2xl border border-[#DCE4DB] p-6 sm:p-8 shadow-sm space-y-5"
         >
           <h2 className="text-lg font-bold text-[#2B1D14]">
-            Shop Contact, Delivery, Tax &amp; Policy Settings
+            Shop Contact, Delivery &amp; Policy Settings
           </h2>
 
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
@@ -1164,18 +1164,7 @@ export default function AdminPage() {
             </div>
           </div>
 
-          <div className="grid grid-cols-1 sm:grid-cols-4 gap-4">
-            <div>
-              <label className="block text-xs font-semibold text-[#3A261B] mb-1">GST (%)</label>
-              <input
-                type="number"
-                value={settingsForm.gstPercentage}
-                onChange={(e) =>
-                  setSettingsForm((s) => ({ ...s, gstPercentage: Number(e.target.value) }))
-                }
-                className="w-full px-3 py-2 rounded-lg border border-[#CFDACE] text-sm tabular-nums"
-              />
-            </div>
+          <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
             <div>
               <label className="block text-xs font-semibold text-[#3A261B] mb-1">
                 Shipping Fee (Paise)

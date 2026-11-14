@@ -519,12 +519,6 @@ export default function OrderDetailPage() {
               {order.shippingPaise === 0 ? '₹0 (Instant)' : formatInrFromPaise(order.shippingPaise)}
             </span>
           </div>
-          <div className="flex justify-between text-[#52635A]">
-            <span>GST</span>
-            <span className="tabular-nums font-semibold text-[#2B1D14]">
-              {formatInrFromPaise(order.taxPaise)}
-            </span>
-          </div>
           <div className="pt-3 border-t border-[#DCE4DB] flex justify-between text-base font-bold text-[#2B1D14]">
             <span>Total Paid</span>
             <span className="tabular-nums">{formatInrFromPaise(order.totalPaise)}</span>

@@ -104,9 +104,8 @@ export function calculateOrderTotals(
         : Math.max(0, Math.round(settings.shippingFeePaise));
   }
 
-  const taxableBasePaise = subtotalPaise + shippingPaise;
-  const taxPaise = Math.round((taxableBasePaise * settings.gstPercentage) / 100);
-  const totalPaise = subtotalPaise + shippingPaise + taxPaise;
+  const taxPaise = 0;
+  const totalPaise = subtotalPaise + shippingPaise;
 
   return {
     subtotalPaise,

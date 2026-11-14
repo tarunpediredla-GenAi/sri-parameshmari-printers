@@ -9,7 +9,7 @@ export const DEFAULT_STORE_SETTINGS: StoreSettings = {
   email: '[Configure Support Email in Admin]',
   phone: '[Configure Studio Helpline Number in Admin]',
   businessHours: 'Monday – Saturday, 9:30 AM – 7:30 PM IST (24/7 Instant Prompt Unlock)',
-  gstPercentage: 18,
+  gstPercentage: 0,
   shippingFeePaise: 0,
   freeShippingThresholdPaise: 0,
   pickupEnabled: false,

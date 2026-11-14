@@ -288,7 +288,7 @@ export default function ProductDetailPage() {
             <div className="rounded-xl bg-[#F2F5F1] border border-[#DCE4DB] p-4 space-y-3">
               <div className="flex flex-wrap items-center justify-between gap-2">
                 <div>
-                  <span className="text-xs text-[#52635A]">Design Package Total (excl. GST)</span>
+                  <span className="text-xs text-[#52635A]">Design Package Total</span>
                   <div className="text-3xl font-bold text-[#2B1D14] tabular-nums">
                     {formatInrFromPaise(priced.unitPackPricePaise)}
                   </div>

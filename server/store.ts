@@ -124,7 +124,7 @@ export async function getCatalogData(): Promise<{
         ? SAMPLE_PRODUCTS
         : (prodSnap.docs.map((d) => d.data()) as Product[]);
       const settings = settingsSnap.exists
-        ? (settingsSnap.data() as StoreSettings)
+        ? ({ ...(settingsSnap.data() as StoreSettings), gstPercentage: 0 } as StoreSettings)
         : DEFAULT_STORE_SETTINGS;
 
       return { categories, products, settings };
@@ -137,7 +137,7 @@ export async function getCatalogData(): Promise<{
   return {
     categories: state.categories,
     products: state.products,
-    settings: state.settings,
+    settings: { ...state.settings, gstPercentage: 0 },
   };
 }
 

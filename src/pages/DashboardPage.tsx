@@ -38,7 +38,6 @@ export default function DashboardPage() {
   const [displayName, setDisplayName] = useState('');
   const [phone, setPhone] = useState('');
   const [companyName, setCompanyName] = useState('');
-  const [gstin, setGstin] = useState('');
   const [profileSaved, setProfileSaved] = useState(false);
 
   const [newAddr, setNewAddr] = useState<Omit<SavedAddress, 'id'>>({
@@ -56,7 +55,6 @@ export default function DashboardPage() {
       setDisplayName(profile.displayName || user?.displayName || '');
       setPhone(profile.phone || '');
       setCompanyName(profile.companyName || '');
-      setGstin(profile.gstin || '');
     }
   }, [profile, user]);
 
@@ -102,7 +100,7 @@ export default function DashboardPage() {
   const handleSaveProfile = async (e: React.FormEvent) => {
     e.preventDefault();
     setProfileSaved(false);
-    await saveProfile({ displayName, phone, companyName, gstin });
+    await saveProfile({ displayName, phone, companyName });
     setProfileSaved(true);
   };
 
@@ -361,7 +359,7 @@ export default function DashboardPage() {
             onSubmit={handleSaveProfile}
             className="lg:col-span-6 bg-white rounded-2xl border border-[#DCE4DB] p-6 shadow-sm space-y-4"
           >
-            <h2 className="text-lg font-bold text-[#2B1D14]">Account &amp; GST Billing Details</h2>
+            <h2 className="text-lg font-bold text-[#2B1D14]">Account &amp; Billing Details</h2>
             <div>
               <label htmlFor="prof-name" className="block text-xs font-semibold text-[#3A261B] mb-1">
                 Full Name
@@ -386,31 +384,17 @@ export default function DashboardPage() {
                 className="w-full px-3.5 py-2.5 rounded-lg border border-[#CFDACE] text-sm text-[#2B1D14] focus:outline-none focus:ring-2 focus:ring-[#F59E0B]/60"
               />
             </div>
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-              <div>
-                <label htmlFor="prof-comp" className="block text-xs font-semibold text-[#3A261B] mb-1">
-                  Company Name (Optional)
-                </label>
-                <input
-                  id="prof-comp"
-                  type="text"
-                  value={companyName}
-                  onChange={(e) => setCompanyName(e.target.value)}
-                  className="w-full px-3.5 py-2.5 rounded-lg border border-[#CFDACE] text-sm text-[#2B1D14] focus:outline-none focus:ring-2 focus:ring-[#F59E0B]/60"
-                />
-              </div>
-              <div>
-                <label htmlFor="prof-gst" className="block text-xs font-semibold text-[#3A261B] mb-1">
-                  GSTIN (Optional)
-                </label>
-                <input
-                  id="prof-gst"
-                  type="text"
-                  value={gstin}
-                  onChange={(e) => setGstin(e.target.value)}
-                  className="w-full px-3.5 py-2.5 rounded-lg border border-[#CFDACE] text-sm text-[#2B1D14] focus:outline-none focus:ring-2 focus:ring-[#F59E0B]/60"
-                />
-              </div>
+            <div>
+              <label htmlFor="prof-comp" className="block text-xs font-semibold text-[#3A261B] mb-1">
+                Company Name (Optional)
+              </label>
+              <input
+                id="prof-comp"
+                type="text"
+                value={companyName}
+                onChange={(e) => setCompanyName(e.target.value)}
+                className="w-full px-3.5 py-2.5 rounded-lg border border-[#CFDACE] text-sm text-[#2B1D14] focus:outline-none focus:ring-2 focus:ring-[#F59E0B]/60"
+              />
             </div>
 
             {profileSaved && (

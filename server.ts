@@ -1200,6 +1200,7 @@ export function createApiApp() {
     const updated: StoreSettings = {
       ...body,
       id: 'storefront',
+      gstPercentage: 0,
       updatedAt: new Date().toISOString(),
     };
     await saveStoreSettings(updated);

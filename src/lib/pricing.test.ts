@@ -79,20 +79,20 @@ test('calculateItemPricing rejects tampered option or quantity tier', () => {
   );
 });
 
-test('calculateOrderTotals computes digital ₹0 delivery, shipping, pickup, and GST in integer paise', () => {
+test('calculateOrderTotals computes digital ₹0 delivery, shipping, and pickup without GST in integer paise', () => {
   const digitalOrder = calculateOrderTotals(
     [{ unitPackPricePaise: 100000 }],
     'digital',
     DEFAULT_STORE_SETTINGS
   );
-  // subtotal 100000 + ₹0 digital delivery; 18% GST = 18000; total = 118000
+  // subtotal 100000 + ₹0 digital delivery; ₹0 tax; total = 100000
   assert.equal(digitalOrder.subtotalPaise, 100000);
   assert.equal(digitalOrder.shippingPaise, 0);
-  assert.equal(digitalOrder.taxPaise, 18000);
-  assert.equal(digitalOrder.totalPaise, 118000);
+  assert.equal(digitalOrder.taxPaise, 0);
+  assert.equal(digitalOrder.totalPaise, 100000);
 
   const physicalSettings = {
-    gstPercentage: 18,
+    gstPercentage: 0,
     shippingFeePaise: 12000,
     freeShippingThresholdPaise: 249900,
     pickupEnabled: true,
@@ -104,8 +104,8 @@ test('calculateOrderTotals computes digital ₹0 delivery, shipping, pickup, and
     physicalSettings
   );
   assert.equal(belowThreshold.shippingPaise, 12000);
-  assert.equal(belowThreshold.taxPaise, 20160);
-  assert.equal(belowThreshold.totalPaise, 132160);
+  assert.equal(belowThreshold.taxPaise, 0);
+  assert.equal(belowThreshold.totalPaise, 112000);
 
   const pickup = calculateOrderTotals(
     [{ unitPackPricePaise: 100000 }],
@@ -113,8 +113,8 @@ test('calculateOrderTotals computes digital ₹0 delivery, shipping, pickup, and
     physicalSettings
   );
   assert.equal(pickup.shippingPaise, 0);
-  assert.equal(pickup.taxPaise, 18000);
-  assert.equal(pickup.totalPaise, 118000);
+  assert.equal(pickup.taxPaise, 0);
+  assert.equal(pickup.totalPaise, 100000);
 });
 
 test('formatInrFromPaise formats clean INR strings', () => {

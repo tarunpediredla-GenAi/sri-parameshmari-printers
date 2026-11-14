@@ -323,7 +323,7 @@ export default function HomePage() {
                 },
                 {
                   title: 'Transparent INR Pricing',
-                  desc: 'Instant option pricing, multi-variation bundles, and GST calculated clearly in Indian Rupees.',
+                  desc: 'Instant option pricing and multi-variation bundles calculated clearly in Indian Rupees.',
                 },
               ].map((item) => (
                 <div

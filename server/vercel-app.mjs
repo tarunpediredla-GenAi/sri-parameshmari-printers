@@ -50,9 +50,8 @@ function calculateOrderTotals(items, deliveryMethod, settings) {
   if (deliveryMethod === "shipping" && subtotalPaise > 0) {
     shippingPaise = subtotalPaise >= settings.freeShippingThresholdPaise ? 0 : Math.max(0, Math.round(settings.shippingFeePaise));
   }
-  const taxableBasePaise = subtotalPaise + shippingPaise;
-  const taxPaise = Math.round(taxableBasePaise * settings.gstPercentage / 100);
-  const totalPaise = subtotalPaise + shippingPaise + taxPaise;
+  const taxPaise = 0;
+  const totalPaise = subtotalPaise + shippingPaise;
   return {
     subtotalPaise,
     shippingPaise,
@@ -371,7 +370,7 @@ var DEFAULT_STORE_SETTINGS = {
   email: "[Configure Support Email in Admin]",
   phone: "[Configure Studio Helpline Number in Admin]",
   businessHours: "Monday \u2013 Saturday, 9:30 AM \u2013 7:30 PM IST (24/7 Instant Prompt Unlock)",
-  gstPercentage: 18,
+  gstPercentage: 0,
   shippingFeePaise: 0,
   freeShippingThresholdPaise: 0,
   pickupEnabled: false,
@@ -852,7 +851,7 @@ async function getCatalogData() {
       ]);
       const categories = catSnap.empty ? SAMPLE_CATEGORIES : catSnap.docs.map((d) => d.data());
       const products = prodSnap.empty ? SAMPLE_PRODUCTS : prodSnap.docs.map((d) => d.data());
-      const settings = settingsSnap.exists ? settingsSnap.data() : DEFAULT_STORE_SETTINGS;
+      const settings = settingsSnap.exists ? { ...settingsSnap.data(), gstPercentage: 0 } : DEFAULT_STORE_SETTINGS;
       return { categories, products, settings };
     } catch (err) {
       console.warn("Firestore catalog fallback:", err instanceof Error ? err.message : err);
@@ -862,7 +861,7 @@ async function getCatalogData() {
   return {
     categories: state.categories,
     products: state.products,
-    settings: state.settings
+    settings: { ...state.settings, gstPercentage: 0 }
   };
 }
 async function saveProduct(product) {
@@ -2097,6 +2096,7 @@ function createApiApp() {
     const updated = {
       ...body,
       id: "storefront",
+      gstPercentage: 0,
       updatedAt: (/* @__PURE__ */ new Date()).toISOString()
     };
     await saveStoreSettings(updated);

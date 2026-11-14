@@ -402,12 +402,6 @@ export default function CheckoutPage() {
               <span>Digital Prompt Delivery</span>
               <span className="font-semibold text-[#3D5A4C] tabular-nums">₹0</span>
             </div>
-            <div className="flex justify-between text-[#52635A]">
-              <span>GST ({settings.gstPercentage}%)</span>
-              <span className="font-semibold text-[#2B1D14] tabular-nums">
-                {formatInrFromPaise(totals.taxPaise)}
-              </span>
-            </div>
             <div className="pt-3 border-t border-[#DCE4DB] flex justify-between text-lg font-bold text-[#2B1D14]">
               <span>Total Payable (INR)</span>
               <span className="tabular-nums">{formatInrFromPaise(totals.totalPaise)}</span>
