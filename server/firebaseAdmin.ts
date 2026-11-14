@@ -3,7 +3,7 @@ import path from 'node:path';
 import {
   applicationDefault,
   cert,
-  getApps,
+  getApp,
   initializeApp,
   type App,
   type ServiceAccount,
@@ -25,53 +25,81 @@ const appletConfig: AppletFirebaseConfig = fs.existsSync(configPath)
 let adminApp: App | null = null;
 let adminFirestore: Firestore | null = null;
 let hasServiceAccount = false;
+let dataProjectId: string | null = null;
+
+function getNamedApp(name: string): App | null {
+  try {
+    return getApp(name);
+  } catch {
+    return null;
+  }
+}
 
 export function initFirebaseAdmin() {
   if (adminApp) {
-    return { app: adminApp, db: adminFirestore, hasServiceAccount, config: appletConfig };
+    return {
+      app: adminApp,
+      db: adminFirestore,
+      hasServiceAccount,
+      config: appletConfig,
+      dataProjectId,
+    };
   }
 
   const rawJson = process.env.FIREBASE_SERVICE_ACCOUNT_JSON?.trim();
   const credFile = process.env.GOOGLE_APPLICATION_CREDENTIALS?.trim();
 
   try {
-    const existingApps = getApps();
-    if (existingApps.length > 0) {
-      adminApp = existingApps[0];
+    // Auth app: verifies logins against the ORIGINAL project
+    // (famous-campaign-mcbh2, from firebase-applet-config.json). It needs no
+    // service account — verifyIdToken uses Google's public keys.
+    adminApp =
+      getNamedApp('auth') ??
+      initializeApp(
+        {
+          projectId: appletConfig.projectId,
+          storageBucket: process.env.FIREBASE_STORAGE_BUCKET || appletConfig.storageBucket,
+        },
+        'auth'
+      );
+
+    // Data app: saves orders/catalog/quotes in the NEW project
+    // (sri-parameshmari-printers, Firestore (default), asia-south1).
+    // Its service account comes from FIREBASE_SERVICE_ACCOUNT_JSON, whose
+    // project_id is the new project's ID. Simply swapping the credential in
+    // Vercel would NOT split auth and data — the old code used one app for
+    // both, with the old project's ID. This keeps the two apps separate.
+    const dataApp = getNamedApp('data');
+    if (dataApp) {
+      adminFirestore = getFirestore(dataApp);
+      hasServiceAccount = true;
+      dataProjectId = (dataApp.options as { projectId?: string }).projectId ?? null;
     } else if (rawJson) {
-      const parsed = JSON.parse(rawJson) as ServiceAccount;
-      adminApp = initializeApp({
-        credential: cert(parsed),
-        projectId: appletConfig.projectId,
-        storageBucket: process.env.FIREBASE_STORAGE_BUCKET || appletConfig.storageBucket,
-      });
+      const parsed = JSON.parse(rawJson) as ServiceAccount & { project_id?: string };
+      dataProjectId = parsed.project_id || process.env.FIREBASE_DATA_PROJECT_ID || 'sri-parameshmari-printers';
+      const app = initializeApp(
+        { credential: cert(parsed), projectId: dataProjectId },
+        'data'
+      );
+      adminFirestore = getFirestore(app);
       hasServiceAccount = true;
     } else if (credFile && fs.existsSync(credFile)) {
-      adminApp = initializeApp({
-        credential: applicationDefault(),
-        projectId: appletConfig.projectId,
-        storageBucket: process.env.FIREBASE_STORAGE_BUCKET || appletConfig.storageBucket,
-      });
+      const app = initializeApp({ credential: applicationDefault() }, 'data');
+      adminFirestore = getFirestore(app);
       hasServiceAccount = true;
-    } else {
-      adminApp = initializeApp({
-        projectId: appletConfig.projectId,
-        storageBucket: process.env.FIREBASE_STORAGE_BUCKET || appletConfig.storageBucket,
-      });
-      hasServiceAccount = false;
-    }
-
-    if (hasServiceAccount && adminApp) {
-      adminFirestore = appletConfig.firestoreDatabaseId
-        ? getFirestore(adminApp, appletConfig.firestoreDatabaseId)
-        : getFirestore(adminApp);
-      adminFirestore.settings({ ignoreUndefinedProperties: true });
+      dataProjectId = (app.options as { projectId?: string }).projectId ?? null;
     }
   } catch (err) {
     console.warn('Firebase Admin initialization notice:', err instanceof Error ? err.message : err);
   }
 
-  return { app: adminApp, db: adminFirestore, hasServiceAccount, config: appletConfig };
+  return {
+    app: adminApp,
+    db: adminFirestore,
+    hasServiceAccount,
+    config: appletConfig,
+    dataProjectId,
+  };
 }
 
 export interface VerifiedRequestUser {

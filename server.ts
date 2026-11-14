@@ -28,8 +28,6 @@ import {
 } from './server/firebaseAdmin';
 import {
   applyVerifiedPaymentTransition,
-  extractRazorpayErrorMessage,
-  validateRazorpayOrderAmount,
   verifyRazorpayCheckoutSignature,
   verifyRazorpayWebhookSignature,
 } from './server/razorpayUtils';
@@ -38,7 +36,6 @@ import {
   deleteProduct,
   getArtworkRecord,
   getCatalogData,
-  getFirestoreIfReady,
   getOrderById,
   getOrderByRazorpayOrderId,
   getQuoteById,
@@ -257,33 +254,29 @@ export function createApiApp() {
 
   app.get('/api/config/status', async (_req, res) => {
     const rzp = getRazorpayClient();
-    const { hasServiceAccount } = initFirebaseAdmin();
-    const checkoutStorageReady = process.env.VERCEL !== '1' || Boolean(getFirestoreIfReady());
+    const { hasServiceAccount, dataProjectId, config } = initFirebaseAdmin();
+    const { settings } = await getCatalogData();
     const appUrl = process.env.APP_URL || `http://localhost:${port}`;
     res.json({
       razorpayConfigured: Boolean(rzp),
-      checkoutStorageReady,
       razorpayKeyId: rzp?.keyId || null,
       razorpayMode: rzp?.keyId.startsWith('rzp_live_') ? 'live' : 'test',
       webhookSecretConfigured: Boolean(process.env.RAZORPAY_WEBHOOK_SECRET?.trim()),
       firebaseAdminConfigured: hasServiceAccount,
-      maxArtworkSizeMb: Number(process.env.MAX_ARTWORK_SIZE_MB || 25),
+      firebaseAuthProjectId: config.projectId,
+      firebaseDataProjectId: dataProjectId,
+      maxArtworkSizeMb: settings.maxArtworkSizeMb || Number(process.env.MAX_ARTWORK_SIZE_MB || 25),
       webhookUrlHint: `${appUrl.replace(/\/$/, '')}/api/webhooks/razorpay`,
     });
   });
 
   app.get('/api/catalog', async (_req, res) => {
-    try {
-      const data = await getCatalogData();
-      res.json({
-        categories: data.categories.filter((c) => c.active),
-        products: data.products.filter((p) => p.published).map(sanitizeProductForPublic),
-        settings: data.settings,
-      });
-    } catch (error) {
-      console.error('Unable to load catalog:', error);
-      res.status(503).json({ error: 'The storefront is temporarily unavailable.' });
-    }
+    const data = await getCatalogData();
+    res.json({
+      categories: data.categories.filter((c) => c.active),
+      products: data.products.filter((p) => p.published).map(sanitizeProductForPublic),
+      settings: data.settings,
+    });
   });
 
   // 4. Private Artwork Upload & Authorized Retrieval
@@ -362,13 +355,8 @@ export function createApiApp() {
 
   // 5. Profile Routes
   app.get('/api/profile', requireAuth, async (req: AuthedRequest, res: Response) => {
-    try {
-      const profile = await getUserProfile(req.user!.uid, req.user!.email);
-      res.json({ profile, isAdmin: req.user!.isAdmin });
-    } catch (error) {
-      console.error('Unable to load profile:', error);
-      res.status(503).json({ error: 'Your profile is temporarily unavailable.' });
-    }
+    const profile = await getUserProfile(req.user!.uid, req.user!.email);
+    res.json({ profile, isAdmin: req.user!.isAdmin });
   });
 
   app.put('/api/profile', requireAuth, async (req: AuthedRequest, res: Response) => {
@@ -395,16 +383,12 @@ export function createApiApp() {
   app.post('/api/orders/checkout', requireAuth, async (req: AuthedRequest, res: Response) => {
     try {
       const user = req.user!;
-      if (process.env.VERCEL === '1' && !getFirestoreIfReady()) {
-        res.status(503).json({ error: 'Checkout is temporarily unavailable because order storage is offline.' });
-        return;
-      }
       const rzp = getRazorpayClient();
       if (!rzp) {
         res.status(503).json({
           code: 'RAZORPAY_NOT_CONFIGURED',
           error:
-            'Razorpay keys (RAZORPAY_KEY_ID and RAZORPAY_KEY_SECRET) are not configured on the server yet.',
+            'Razorpay Test Mode keys (RAZORPAY_KEY_ID and RAZORPAY_KEY_SECRET) are not configured on the server yet.',
         });
         return;
       }
@@ -523,31 +507,18 @@ export function createApiApp() {
         settings
       );
 
-      validateRazorpayOrderAmount(totals.totalPaise);
-
       const orderId = `ord_${crypto.randomUUID().replace(/-/g, '').slice(0, 14)}`;
       const orderNumber = `SPP-${new Date().getFullYear()}-${Math.floor(100000 + Math.random() * 900000)}`;
 
-      let rzpOrder: { id: string };
-      try {
-        rzpOrder = await rzp.client.orders.create({
-          amount: totals.totalPaise,
-          currency: 'INR',
-          receipt: orderNumber,
-          notes: {
-            internalOrderId: orderId,
-            userId: user.uid,
-          },
-        });
-      } catch (rzpErr) {
-        res.status(500).json({
-          error: extractRazorpayErrorMessage(
-            rzpErr,
-            'Razorpay order creation failed. Please try again.'
-          ),
-        });
-        return;
-      }
+      const rzpOrder = await rzp.client.orders.create({
+        amount: totals.totalPaise,
+        currency: 'INR',
+        receipt: orderNumber,
+        notes: {
+          internalOrderId: orderId,
+          userId: user.uid,
+        },
+      });
 
       const now = new Date().toISOString();
       const newOrder: Order = {
@@ -616,19 +587,13 @@ export function createApiApp() {
         return;
       }
 
-      const { razorpay_order_id, razorpay_payment_id, razorpay_signature } = req.body as {
-        razorpay_order_id?: string;
+      const { razorpay_payment_id, razorpay_signature } = req.body as {
         razorpay_payment_id?: string;
         razorpay_signature?: string;
       };
 
       if (!order.razorpayOrderId || !razorpay_payment_id || !razorpay_signature) {
         res.status(400).json({ error: 'Missing Razorpay payment confirmation fields.' });
-        return;
-      }
-
-      if (razorpay_order_id && razorpay_order_id !== order.razorpayOrderId) {
-        res.status(400).json({ error: 'Razorpay order ID mismatch.' });
         return;
       }
 
@@ -645,24 +610,7 @@ export function createApiApp() {
       }
 
       // 2. Fetch live payment record from Razorpay API to verify order, amount, currency, and captured status
-      let payment: {
-        id: string;
-        order_id: string | null;
-        amount: string | number;
-        currency: string;
-        status: string;
-      };
-      try {
-        payment = await rzp.client.payments.fetch(razorpay_payment_id);
-      } catch (rzpErr) {
-        res.status(500).json({
-          error: extractRazorpayErrorMessage(
-            rzpErr,
-            'Failed to fetch payment confirmation from Razorpay.'
-          ),
-        });
-        return;
-      }
+      const payment = await rzp.client.payments.fetch(razorpay_payment_id);
       if (payment.order_id !== order.razorpayOrderId) {
         res.status(400).json({ error: 'Payment does not match the server Razorpay order ID.' });
         return;
@@ -727,25 +675,12 @@ export function createApiApp() {
         return;
       }
 
-      validateRazorpayOrderAmount(order.totalPaise);
-
-      let rzpOrder: { id: string };
-      try {
-        rzpOrder = await rzp.client.orders.create({
-          amount: order.totalPaise,
-          currency: 'INR',
-          receipt: `${order.orderNumber}-R${Date.now().toString().slice(-4)}`,
-          notes: { internalOrderId: order.id, userId: user.uid, retry: 'true' },
-        });
-      } catch (rzpErr) {
-        res.status(500).json({
-          error: extractRazorpayErrorMessage(
-            rzpErr,
-            'Razorpay retry order creation failed. Please try again.'
-          ),
-        });
-        return;
-      }
+      const rzpOrder = await rzp.client.orders.create({
+        amount: order.totalPaise,
+        currency: 'INR',
+        receipt: `${order.orderNumber}-R${Date.now().toString().slice(-4)}`,
+        notes: { internalOrderId: order.id, userId: user.uid, retry: 'true' },
+      });
 
       const updated: Order = {
         ...order,
@@ -1216,7 +1151,6 @@ export function createApiApp() {
     const updated: StoreSettings = {
       ...body,
       id: 'storefront',
-      gstPercentage: 0,
       updatedAt: new Date().toISOString(),
     };
     await saveStoreSettings(updated);
