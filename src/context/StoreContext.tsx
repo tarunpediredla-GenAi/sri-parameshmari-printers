@@ -28,6 +28,7 @@ import type {
 export interface ConfigStatus {
   razorpayConfigured: boolean;
   razorpayKeyId: string | null;
+  checkoutStorageReady?: boolean;
   razorpayMode: 'test' | 'live';
   webhookSecretConfigured: boolean;
   firebaseAdminConfigured: boolean;

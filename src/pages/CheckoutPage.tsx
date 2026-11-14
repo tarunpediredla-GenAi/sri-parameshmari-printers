@@ -46,7 +46,7 @@ export default function CheckoutPage() {
   }, [profile, user]);
 
   const totals = calculateOrderTotals(cart, 'digital', settings);
-  const razorpayReady = Boolean(configStatus?.razorpayConfigured);
+  const razorpayReady = Boolean(configStatus?.razorpayConfigured && configStatus.checkoutStorageReady !== false);
 
   const openRazorpayModal = async (
     order: Order,
@@ -150,7 +150,7 @@ export default function CheckoutPage() {
 
     if (!razorpayReady) {
       setError(
-        'Razorpay Test Mode credentials are not configured yet. Add RAZORPAY_KEY_ID and RAZORPAY_KEY_SECRET in environment settings.'
+        'Online checkout is temporarily unavailable. Please try again later.'
       );
       return;
     }
@@ -271,18 +271,8 @@ export default function CheckoutPage() {
         >
           <AlertCircle className="w-5 h-5 text-amber-700 shrink-0 mt-0.5" aria-hidden="true" />
           <div className="space-y-1 text-sm">
-            <h2 className="font-bold">Razorpay Test Mode Setup Required</h2>
-            <p>
-              Online checkout is currently paused because{' '}
-              <code className="font-mono text-xs bg-amber-100 px-1.5 py-0.5 rounded">
-                RAZORPAY_KEY_ID
-              </code>{' '}
-              and{' '}
-              <code className="font-mono text-xs bg-amber-100 px-1.5 py-0.5 rounded">
-                RAZORPAY_KEY_SECRET
-              </code>{' '}
-              are not configured in the server environment.
-            </p>
+            <h2 className="font-bold">Online checkout is temporarily unavailable</h2>
+            <p>Please try again later.</p>
           </div>
         </div>
       )}
@@ -402,6 +392,12 @@ export default function CheckoutPage() {
               <span>Digital Prompt Delivery</span>
               <span className="font-semibold text-[#3D5A4C] tabular-nums">₹0</span>
             </div>
+            <div className="flex justify-between text-[#52635A]">
+              <span>GST ({settings.gstPercentage}%)</span>
+              <span className="font-semibold text-[#2B1D14] tabular-nums">
+                {formatInrFromPaise(totals.taxPaise)}
+              </span>
+            </div>
             <div className="pt-3 border-t border-[#DCE4DB] flex justify-between text-lg font-bold text-[#2B1D14]">
               <span>Total Payable (INR)</span>
               <span className="tabular-nums">{formatInrFromPaise(totals.totalPaise)}</span>
@@ -460,7 +456,7 @@ export default function CheckoutPage() {
             <ShieldCheck className="w-4 h-4 text-[#3D5A4C]" aria-hidden="true" />
             <span className="inline-flex items-center gap-1">
               <Sparkles className="w-3.5 h-3.5 text-[#B45309]" aria-hidden="true" />
-              Razorpay {configStatus?.razorpayMode === 'live' ? 'Live' : 'Test Mode'} · Prompt
+              Razorpay {razorpayReady && (configStatus?.razorpayMode === 'live' ? 'Live · ' : 'Test Mode · ')}Prompt
               unlocks strictly after verification.
             </span>
           </div>
