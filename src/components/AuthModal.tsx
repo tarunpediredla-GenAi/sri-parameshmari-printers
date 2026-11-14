@@ -2,6 +2,42 @@ import React, { useEffect, useState } from 'react';
 import { AlertCircle, CheckCircle2, Mail, X } from 'lucide-react';
 import { useStore } from '../context/StoreContext';
 
+function formatAuthError(err: unknown, fallback: string): string {
+  const code =
+    typeof err === 'object' && err !== null && 'code' in err
+      ? String((err as { code: unknown }).code)
+      : '';
+  const msg = err instanceof Error ? err.message : '';
+  const host = typeof window !== 'undefined' ? window.location.hostname : 'this domain';
+
+  if (code === 'auth/unauthorized-domain' || msg.includes('auth/unauthorized-domain')) {
+    return `Google & OAuth sign-in is not authorized for "${host}". Add "${host}" under Firebase Console → Authentication → Settings → Authorized domains.`;
+  }
+  if (code === 'auth/popup-blocked' || msg.includes('auth/popup-blocked')) {
+    return 'Sign-in popup was blocked by your browser. Please allow popups for this site and try again.';
+  }
+  if (code === 'auth/popup-closed-by-user' || msg.includes('auth/popup-closed-by-user')) {
+    return 'Sign-in popup was closed before completing authentication.';
+  }
+  if (code === 'auth/operation-not-allowed' || msg.includes('auth/operation-not-allowed')) {
+    return 'This sign-in method is not enabled in Firebase Console → Authentication → Sign-in method.';
+  }
+  if (
+    code === 'auth/invalid-credential' ||
+    code === 'auth/wrong-password' ||
+    code === 'auth/user-not-found'
+  ) {
+    return 'Invalid email or password. Please check your credentials and try again.';
+  }
+  if (code === 'auth/email-already-in-use') {
+    return 'An account with this email already exists. Please sign in instead.';
+  }
+  if (code === 'auth/too-many-requests') {
+    return 'Too many sign-in attempts. Please wait a few minutes and try again.';
+  }
+  return msg || fallback;
+}
+
 export default function AuthModal() {
   const {
     authModalOpen,
@@ -43,9 +79,7 @@ export default function AuthModal() {
         setInfoMessage('Password reset instructions have been sent to your email address.');
       }
     } catch (err) {
-      setError(
-        err instanceof Error ? err.message : 'Authentication failed. Please check your details.'
-      );
+      setError(formatAuthError(err, 'Authentication failed. Please check your details.'));
     } finally {
       setSubmitting(false);
     }
@@ -57,7 +91,7 @@ export default function AuthModal() {
     try {
       await signInGoogle();
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Google sign-in failed.');
+      setError(formatAuthError(err, 'Google sign-in failed.'));
     } finally {
       setSubmitting(false);
     }
