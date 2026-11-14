@@ -48,6 +48,7 @@ interface LocalRuntimeState {
   admins: string[];
 }
 
+const onVercel = process.env.VERCEL === '1';
 const DATA_DIR = path.resolve(process.cwd(), 'data');
 const DATA_FILE = path.join(DATA_DIR, 'runtime-store.json');
 export const PRIVATE_ARTWORK_DIR = path.resolve(process.cwd(), 'uploads', 'private-artwork');
@@ -76,6 +77,7 @@ function defaultState(): LocalRuntimeState {
 }
 
 function readLocalState(): LocalRuntimeState {
+  if (onVercel) return defaultState();
   ensureDirs();
   if (!fs.existsSync(DATA_FILE)) {
     const initial = defaultState();
@@ -94,11 +96,12 @@ function readLocalState(): LocalRuntimeState {
 }
 
 function writeLocalState(state: LocalRuntimeState) {
+  if (onVercel) throw new Error('Persistent storage is unavailable.');
   ensureDirs();
   fs.writeFileSync(DATA_FILE, JSON.stringify(state, null, 2));
 }
 
-function getFirestoreIfReady() {
+export function getFirestoreIfReady() {
   const { db, hasServiceAccount } = initFirebaseAdmin();
   return hasServiceAccount && db ? db : null;
 }
@@ -129,6 +132,7 @@ export async function getCatalogData(): Promise<{
 
       return { categories, products, settings };
     } catch (err) {
+      if (onVercel) throw err;
       console.warn('Firestore catalog fallback:', err instanceof Error ? err.message : err);
     }
   }
@@ -145,6 +149,7 @@ export async function saveProduct(product: Product): Promise<Product> {
   const db = getFirestoreIfReady();
   if (db) {
     await db.collection('products').doc(product.id).set(product);
+    if (onVercel) return product;
   }
   const state = readLocalState();
   const idx = state.products.findIndex((p) => p.id === product.id);
@@ -161,6 +166,7 @@ export async function deleteProduct(productId: string): Promise<void> {
   const db = getFirestoreIfReady();
   if (db) {
     await db.collection('products').doc(productId).delete();
+    if (onVercel) return;
   }
   const state = readLocalState();
   state.products = state.products.filter((p) => p.id !== productId);
@@ -171,6 +177,7 @@ export async function saveCategory(category: Category): Promise<Category> {
   const db = getFirestoreIfReady();
   if (db) {
     await db.collection('categories').doc(category.id).set(category);
+    if (onVercel) return category;
   }
   const state = readLocalState();
   const idx = state.categories.findIndex((c) => c.id === category.id);
@@ -188,6 +195,7 @@ export async function deleteCategory(categoryId: string): Promise<void> {
   const db = getFirestoreIfReady();
   if (db) {
     await db.collection('categories').doc(categoryId).delete();
+    if (onVercel) return;
   }
   const state = readLocalState();
   state.categories = state.categories.filter((c) => c.id !== categoryId);
@@ -198,6 +206,7 @@ export async function saveStoreSettings(settings: StoreSettings): Promise<StoreS
   const db = getFirestoreIfReady();
   if (db) {
     await db.collection('settings').doc('storefront').set(settings);
+    if (onVercel) return settings;
   }
   const state = readLocalState();
   state.settings = settings;
@@ -297,6 +306,7 @@ export async function saveOrder(order: Order): Promise<Order> {
   const db = getFirestoreIfReady();
   if (db) {
     await db.collection('orders').doc(order.id).set(order);
+    if (onVercel) return order;
   }
   const state = readLocalState();
   const idx = state.orders.findIndex((o) => o.id === order.id);
@@ -389,6 +399,7 @@ export async function saveQuote(quote: QuoteRequest): Promise<QuoteRequest> {
   const db = getFirestoreIfReady();
   if (db) {
     await db.collection('quotes').doc(quote.id).set(quote);
+    if (onVercel) return quote;
   }
   const state = readLocalState();
   const idx = state.quotes.findIndex((q) => q.id === quote.id);
@@ -460,8 +471,19 @@ export async function getUserProfile(uid: string, email: string): Promise<UserPr
     createdAt: now,
     updatedAt: now,
   };
-  state.profiles[uid] = created;
-  writeLocalState(state);
+  if (onVercel && db) {
+    const ref = db.collection('users').doc(uid);
+    return db.runTransaction(async (transaction) => {
+      const existing = await transaction.get(ref);
+      if (existing.exists) return existing.data() as UserProfile;
+      transaction.set(ref, created);
+      return created;
+    });
+  }
+  if (!onVercel) {
+    state.profiles[uid] = created;
+    writeLocalState(state);
+  }
   return created;
 }
 
@@ -469,6 +491,7 @@ export async function saveUserProfile(profile: UserProfile): Promise<UserProfile
   const db = getFirestoreIfReady();
   if (db) {
     await db.collection('users').doc(profile.uid).set(profile, { merge: true });
+    if (onVercel) return profile;
   }
   const state = readLocalState();
   state.profiles[profile.uid] = profile;

@@ -38,6 +38,7 @@ import {
   deleteProduct,
   getArtworkRecord,
   getCatalogData,
+  getFirestoreIfReady,
   getOrderById,
   getOrderByRazorpayOrderId,
   getQuoteById,
@@ -257,26 +258,32 @@ export function createApiApp() {
   app.get('/api/config/status', async (_req, res) => {
     const rzp = getRazorpayClient();
     const { hasServiceAccount } = initFirebaseAdmin();
-    const { settings } = await getCatalogData();
+    const checkoutStorageReady = process.env.VERCEL !== '1' || Boolean(getFirestoreIfReady());
     const appUrl = process.env.APP_URL || `http://localhost:${port}`;
     res.json({
       razorpayConfigured: Boolean(rzp),
+      checkoutStorageReady,
       razorpayKeyId: rzp?.keyId || null,
       razorpayMode: rzp?.keyId.startsWith('rzp_live_') ? 'live' : 'test',
       webhookSecretConfigured: Boolean(process.env.RAZORPAY_WEBHOOK_SECRET?.trim()),
       firebaseAdminConfigured: hasServiceAccount,
-      maxArtworkSizeMb: settings.maxArtworkSizeMb || Number(process.env.MAX_ARTWORK_SIZE_MB || 25),
+      maxArtworkSizeMb: Number(process.env.MAX_ARTWORK_SIZE_MB || 25),
       webhookUrlHint: `${appUrl.replace(/\/$/, '')}/api/webhooks/razorpay`,
     });
   });
 
   app.get('/api/catalog', async (_req, res) => {
-    const data = await getCatalogData();
-    res.json({
-      categories: data.categories.filter((c) => c.active),
-      products: data.products.filter((p) => p.published).map(sanitizeProductForPublic),
-      settings: data.settings,
-    });
+    try {
+      const data = await getCatalogData();
+      res.json({
+        categories: data.categories.filter((c) => c.active),
+        products: data.products.filter((p) => p.published).map(sanitizeProductForPublic),
+        settings: data.settings,
+      });
+    } catch (error) {
+      console.error('Unable to load catalog:', error);
+      res.status(503).json({ error: 'The storefront is temporarily unavailable.' });
+    }
   });
 
   // 4. Private Artwork Upload & Authorized Retrieval
@@ -355,8 +362,13 @@ export function createApiApp() {
 
   // 5. Profile Routes
   app.get('/api/profile', requireAuth, async (req: AuthedRequest, res: Response) => {
-    const profile = await getUserProfile(req.user!.uid, req.user!.email);
-    res.json({ profile, isAdmin: req.user!.isAdmin });
+    try {
+      const profile = await getUserProfile(req.user!.uid, req.user!.email);
+      res.json({ profile, isAdmin: req.user!.isAdmin });
+    } catch (error) {
+      console.error('Unable to load profile:', error);
+      res.status(503).json({ error: 'Your profile is temporarily unavailable.' });
+    }
   });
 
   app.put('/api/profile', requireAuth, async (req: AuthedRequest, res: Response) => {
@@ -383,12 +395,16 @@ export function createApiApp() {
   app.post('/api/orders/checkout', requireAuth, async (req: AuthedRequest, res: Response) => {
     try {
       const user = req.user!;
+      if (process.env.VERCEL === '1' && !getFirestoreIfReady()) {
+        res.status(503).json({ error: 'Checkout is temporarily unavailable because order storage is offline.' });
+        return;
+      }
       const rzp = getRazorpayClient();
       if (!rzp) {
         res.status(503).json({
           code: 'RAZORPAY_NOT_CONFIGURED',
           error:
-            'Razorpay Test Mode keys (RAZORPAY_KEY_ID and RAZORPAY_KEY_SECRET) are not configured on the server yet.',
+            'Razorpay keys (RAZORPAY_KEY_ID and RAZORPAY_KEY_SECRET) are not configured on the server yet.',
         });
         return;
       }

@@ -65,6 +65,7 @@ export function initFirebaseAdmin() {
       adminFirestore = appletConfig.firestoreDatabaseId
         ? getFirestore(adminApp, appletConfig.firestoreDatabaseId)
         : getFirestore(adminApp);
+      adminFirestore.settings({ ignoreUndefinedProperties: true });
     }
   } catch (err) {
     console.warn('Firebase Admin initialization notice:', err instanceof Error ? err.message : err);
