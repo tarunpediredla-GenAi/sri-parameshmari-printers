@@ -26,9 +26,11 @@ let adminApp: App | null = null;
 let adminFirestore: Firestore | null = null;
 let hasServiceAccount = false;
 
+const storageBucket = process.env.FIREBASE_STORAGE_BUCKET?.trim() || appletConfig.storageBucket;
+
 export function initFirebaseAdmin() {
   if (adminApp) {
-    return { app: adminApp, db: adminFirestore, hasServiceAccount, config: appletConfig };
+    return { app: adminApp, db: adminFirestore, hasServiceAccount, storageBucket, config: appletConfig };
   }
 
   const rawJson = process.env.FIREBASE_SERVICE_ACCOUNT_JSON?.trim();
@@ -43,20 +45,20 @@ export function initFirebaseAdmin() {
       adminApp = initializeApp({
         credential: cert(parsed),
         projectId: appletConfig.projectId,
-        storageBucket: process.env.FIREBASE_STORAGE_BUCKET || appletConfig.storageBucket,
+        storageBucket,
       });
       hasServiceAccount = true;
     } else if (credFile && fs.existsSync(credFile)) {
       adminApp = initializeApp({
         credential: applicationDefault(),
         projectId: appletConfig.projectId,
-        storageBucket: process.env.FIREBASE_STORAGE_BUCKET || appletConfig.storageBucket,
+        storageBucket,
       });
       hasServiceAccount = true;
     } else {
       adminApp = initializeApp({
         projectId: appletConfig.projectId,
-        storageBucket: process.env.FIREBASE_STORAGE_BUCKET || appletConfig.storageBucket,
+        storageBucket,
       });
       hasServiceAccount = false;
     }
@@ -70,7 +72,7 @@ export function initFirebaseAdmin() {
     console.warn('Firebase Admin initialization notice:', err instanceof Error ? err.message : err);
   }
 
-  return { app: adminApp, db: adminFirestore, hasServiceAccount, config: appletConfig };
+  return { app: adminApp, db: adminFirestore, hasServiceAccount, storageBucket, config: appletConfig };
 }
 
 export interface VerifiedRequestUser {

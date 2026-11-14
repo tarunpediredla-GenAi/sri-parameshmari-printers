@@ -1,8 +1,8 @@
+import { SAMPLE_PRODUCTS } from '../server/sampleProducts';
 import 'dotenv/config';
 import {
   DEFAULT_STORE_SETTINGS,
   SAMPLE_CATEGORIES,
-  SAMPLE_PRODUCTS,
 } from '../src/lib/catalogDefaults';
 import { initFirebaseAdmin } from '../server/firebaseAdmin';
 import { saveCategory, saveProduct, saveStoreSettings } from '../server/store';

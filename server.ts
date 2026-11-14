@@ -5,7 +5,6 @@ import path from 'node:path';
 import express, { type NextFunction, type Request, type Response } from 'express';
 import multer from 'multer';
 import Razorpay from 'razorpay';
-import { createServer as createViteServer } from 'vite';
 import {
   buildTailoredOrderPrompt,
   calculateItemPricing,
@@ -125,10 +124,30 @@ function sanitizeOrderForCustomer(order: Order): Order {
   };
 }
 
-async function startServer() {
+const port = Number(process.env.PORT || 3000);
+
+export function createApiApp() {
   const app = express();
-  const port = Number(process.env.PORT || 3000);
   initFirebaseAdmin();
+
+  if (process.env.VERCEL === '1') {
+    app.use('/api', (req, res, next) => {
+      if (
+        req.method === 'GET' &&
+        ['/health', '/catalog', '/config/status'].includes(req.path)
+      ) {
+        next();
+        return;
+      }
+
+      if (!initFirebaseAdmin().db) {
+        res.status(503).json({ error: 'Firebase server credentials are required for this feature.' });
+        return;
+      }
+
+      next();
+    });
+  }
 
   // 1. Razorpay Webhook MUST be mounted BEFORE express.json() so raw Buffer signature verification works
   app.post(
@@ -236,10 +255,11 @@ async function startServer() {
   });
 
   app.get('/api/config/status', async (_req, res) => {
-    const rzp = getRazorpayClient();
     const { hasServiceAccount } = initFirebaseAdmin();
+    const rzp = process.env.VERCEL === '1' && !hasServiceAccount ? null : getRazorpayClient();
     const { settings } = await getCatalogData();
-    const appUrl = process.env.APP_URL || `http://localhost:${port}`;
+    const appUrl = process.env.APP_URL ||
+      (process.env.VERCEL_URL ? `https://${process.env.VERCEL_URL}` : `http://localhost:${port}`);
     res.json({
       razorpayConfigured: Boolean(rzp),
       razorpayKeyId: rzp?.keyId || null,
@@ -266,6 +286,10 @@ async function startServer() {
     requireAuth,
     upload.single('file'),
     async (req: AuthedRequest, res: Response) => {
+      if (process.env.VERCEL === '1' && !initFirebaseAdmin().storageBucket) {
+        res.status(503).json({ error: 'Firebase Storage must be configured before uploading artwork.' });
+        return;
+      }
       try {
         const user = req.user!;
         const file = req.file;
@@ -1138,10 +1162,16 @@ async function startServer() {
     res.json({ settings: updated });
   });
 
-  // 9. Vite Middleware (Dev) or Static Dist Serving (Prod)
+  return app;
+}
+
+export async function startServer() {
+  const app = createApiApp();
+  // Vite middleware in development, static assets in production.
   const isProd = process.env.NODE_ENV === 'production';
   if (!isProd) {
-    const vite = await createViteServer({
+    const { createServer } = await import('vite');
+    const vite = await createServer({
       server: { middlewareMode: true },
       appType: 'spa',
     });
@@ -1163,5 +1193,3 @@ async function startServer() {
     console.log(`Sri Parameshmari Printers server running on http://0.0.0.0:${port}`);
   });
 }
-
-void startServer();
