@@ -125,9 +125,27 @@ function sanitizeOrderForCustomer(order: Order): Order {
   };
 }
 
-async function startServer() {
+function resolveServerPort(): number {
+  const args = process.argv.slice(2);
+  for (let i = 0; i < args.length; i += 1) {
+    if (args[i] === '--port' && args[i + 1]) {
+      const parsed = Number(args[i + 1]);
+      if (Number.isFinite(parsed) && parsed > 0) return parsed;
+    } else if (args[i].startsWith('--port=')) {
+      const parsed = Number(args[i].slice('--port='.length));
+      if (Number.isFinite(parsed) && parsed > 0) return parsed;
+    }
+  }
+  if (process.env.NODE_ENV === 'production' && process.env.PORT) {
+    const parsed = Number(process.env.PORT);
+    if (Number.isFinite(parsed) && parsed > 0) return parsed;
+  }
+  return 3000;
+}
+
+export function createApiApp() {
   const app = express();
-  const port = Number(process.env.PORT || 3000);
+  const port = resolveServerPort();
   initFirebaseAdmin();
 
   // 1. Razorpay Webhook MUST be mounted BEFORE express.json() so raw Buffer signature verification works
@@ -1138,6 +1156,13 @@ async function startServer() {
     res.json({ settings: updated });
   });
 
+  return app;
+}
+
+async function startServer() {
+  const app = createApiApp();
+  const port = resolveServerPort();
+
   // 9. Vite Middleware (Dev) or Static Dist Serving (Prod)
   const isProd = process.env.NODE_ENV === 'production';
   if (!isProd) {
@@ -1164,4 +1189,9 @@ async function startServer() {
   });
 }
 
-void startServer();
+const entryBase = process.argv[1]
+  ? path.basename(process.argv[1]).replace(/\.(ts|js|mjs|cjs)$/, '')
+  : '';
+if (entryBase === 'server') {
+  void startServer();
+}
