@@ -1,5 +1,5 @@
 import fs from 'node:fs';
-import path from 'node:path';
+import firebaseConfig from '../firebase-applet-config.json';
 import {
   applicationDefault,
   cert,
@@ -17,10 +17,7 @@ interface AppletFirebaseConfig {
   storageBucket?: string;
 }
 
-const configPath = path.resolve(process.cwd(), 'firebase-applet-config.json');
-const appletConfig: AppletFirebaseConfig = fs.existsSync(configPath)
-  ? (JSON.parse(fs.readFileSync(configPath, 'utf8')) as AppletFirebaseConfig)
-  : { projectId: process.env.FIREBASE_PROJECT_ID || 'famous-campaign-mcbh2' };
+const appletConfig: AppletFirebaseConfig = firebaseConfig;
 
 let adminApp: App | null = null;
 let adminFirestore: Firestore | null = null;
