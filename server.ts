@@ -470,9 +470,9 @@ export function createApiApp() {
         }
 
         const brandBrief =
-          typeof clientItem.brandBrief === 'string'
+          typeof clientItem.brandBrief === 'string' && clientItem.brandBrief.trim()
             ? clientItem.brandBrief.trim().slice(0, 1200)
-            : undefined;
+            : '';
 
         const basePrompt =
           product.designPrompt ||

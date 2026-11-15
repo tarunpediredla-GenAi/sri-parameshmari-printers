@@ -72,6 +72,7 @@ export function initFirebaseAdmin() {
     const dataApp = getNamedApp('data');
     if (dataApp) {
       adminFirestore = getFirestore(dataApp);
+      adminFirestore.settings({ ignoreUndefinedProperties: true });
       hasServiceAccount = true;
       dataProjectId = (dataApp.options as { projectId?: string }).projectId ?? null;
     } else if (rawJson) {
@@ -82,10 +83,12 @@ export function initFirebaseAdmin() {
         'data'
       );
       adminFirestore = getFirestore(app);
+      adminFirestore.settings({ ignoreUndefinedProperties: true });
       hasServiceAccount = true;
     } else if (credFile && fs.existsSync(credFile)) {
       const app = initializeApp({ credential: applicationDefault() }, 'data');
       adminFirestore = getFirestore(app);
+      adminFirestore.settings({ ignoreUndefinedProperties: true });
       hasServiceAccount = true;
       dataProjectId = (app.options as { projectId?: string }).projectId ?? null;
     }
