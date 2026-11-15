@@ -1,3 +1,5 @@
+import type { Order } from '../types/print';
+
 export interface RazorpayModalOptions {
   key: string;
   amount: number;
@@ -96,15 +98,34 @@ export async function ensureRazorpayCheckoutLoaded(): Promise<
   return window.Razorpay;
 }
 
-export function extractRazorpayFailureMessage(failRes: unknown): string {
+export type RazorpayRetryResponse = {
+  order: Order;
+  razorpay: { keyId: string; orderId: string; amountPaise: number; currency: string } | null;
+};
+
+export function extractRazorpayFailure(failRes: unknown) {
+  const fallback = 'Razorpay payment failed. Please try again.';
   if (typeof failRes === 'object' && failRes !== null && 'error' in failRes) {
-    const errObj = (failRes as { error?: { description?: unknown; reason?: unknown } }).error;
-    if (typeof errObj?.description === 'string' && errObj.description.trim()) {
-      return errObj.description.trim();
-    }
-    if (typeof errObj?.reason === 'string' && errObj.reason.trim()) {
-      return `Payment failed: ${errObj.reason.trim()}`;
-    }
+    const error = (failRes as { error?: {
+      description?: unknown;
+      code?: unknown;
+      source?: unknown;
+      step?: unknown;
+      reason?: unknown;
+      metadata?: { payment_id?: unknown };
+    } }).error;
+    const description = typeof error?.description === 'string' ? error.description.trim() : '';
+    const reason = typeof error?.reason === 'string' ? error.reason.trim() : '';
+    return {
+      reason: description || (reason ? `Payment failed: ${reason}` : fallback),
+      failure: {
+        code: error?.code,
+        source: error?.source,
+        step: error?.step,
+        reason: error?.reason,
+        paymentId: error?.metadata?.payment_id,
+      },
+    };
   }
-  return 'Razorpay payment failed. Please try again.';
+  return { reason: fallback };
 }

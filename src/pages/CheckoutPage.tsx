@@ -13,7 +13,8 @@ import { apiFetch } from '../lib/api';
 import { calculateOrderTotals, formatInrFromPaise } from '../lib/pricing';
 import {
   ensureRazorpayCheckoutLoaded,
-  extractRazorpayFailureMessage,
+  extractRazorpayFailure,
+  type RazorpayRetryResponse,
 } from '../lib/razorpayClient';
 import type { Order } from '../types/print';
 
@@ -98,6 +99,12 @@ export default function CheckoutPage() {
             },
             token
           );
+          if (verified.order.paymentStatus !== 'paid') {
+            setPendingOrder(verified.order);
+            setError('Razorpay is confirming your payment. Use Check Payment Status.');
+            setSubmitting(false);
+            return;
+          }
           clearCart();
           navigate(`/orders/${verified.order.id}?confirmed=1`);
         } catch (verifyErr) {
@@ -120,19 +127,19 @@ export default function CheckoutPage() {
     });
 
     rzp.on('payment.failed', async (failRes: unknown) => {
-      const msg = extractRazorpayFailureMessage(failRes);
+      const failure = extractRazorpayFailure(failRes);
 
       try {
         const failed = await apiFetch<{ order: Order }>(
           `/api/orders/${order.id}/mark-failed`,
-          { method: 'POST', body: JSON.stringify({ reason: msg }) },
+          { method: 'POST', body: JSON.stringify(failure) },
           token
         );
         setPendingOrder(failed.order);
       } catch {
         // ignore
       }
-      setError(msg);
+      setError(failure.reason);
       setSubmitting(false);
     });
 
@@ -141,6 +148,7 @@ export default function CheckoutPage() {
 
   const handleCheckoutSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
+    if (pendingOrder || submitting) return;
     setError(null);
 
     if (!user) {
@@ -200,12 +208,15 @@ export default function CheckoutPage() {
     try {
       const token = await getFreshToken();
       if (!token) throw new Error('Sign in required.');
-      const res = await apiFetch<{
-        order: Order;
-        razorpay: { keyId: string; orderId: string; amountPaise: number; currency: string };
-      }>(`/api/orders/${pendingOrder.id}/retry-payment`, { method: 'POST' }, token);
+      const res = await apiFetch<RazorpayRetryResponse>(`/api/orders/${pendingOrder.id}/retry-payment`, { method: 'POST' }, token);
       setPendingOrder(res.order);
-      await openRazorpayModal(res.order, res.razorpay, token);
+      if (res.razorpay) {
+        await openRazorpayModal(res.order, res.razorpay, token);
+      } else {
+        clearCart();
+        navigate(`/orders/${res.order.id}?confirmed=1`);
+        setSubmitting(false);
+      }
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Retry failed.');
       setSubmitting(false);
@@ -439,18 +450,20 @@ export default function CheckoutPage() {
             </div>
           )}
 
-          <button
-            type="submit"
-            disabled={submitting || !razorpayReady || !user}
-            className="w-full py-3.5 px-6 rounded-xl bg-[#F59E0B] hover:bg-[#D9840E] text-[#231710] font-bold text-sm transition-colors flex items-center justify-center gap-2 disabled:opacity-50 shadow-[0_0_20px_rgba(245,158,11,0.3)]"
-          >
-            <Lock className="w-4 h-4" aria-hidden="true" />
-            <span>
-              {submitting
-                ? 'Processing...'
-                : `Pay ${formatInrFromPaise(totals.totalPaise)} & Unlock Prompt`}
-            </span>
-          </button>
+          {!pendingOrder && (
+            <button
+              type="submit"
+              disabled={submitting || !razorpayReady || !user}
+              className="w-full py-3.5 px-6 rounded-xl bg-[#F59E0B] hover:bg-[#D9840E] text-[#231710] font-bold text-sm transition-colors flex items-center justify-center gap-2 disabled:opacity-50 shadow-[0_0_20px_rgba(245,158,11,0.3)]"
+            >
+              <Lock className="w-4 h-4" aria-hidden="true" />
+              <span>
+                {submitting
+                  ? 'Processing...'
+                  : `Pay ${formatInrFromPaise(totals.totalPaise)} & Unlock Prompt`}
+              </span>
+            </button>
+          )}
 
           <div className="flex items-center gap-2 text-xs text-[#64746B] justify-center">
             <ShieldCheck className="w-4 h-4 text-[#3D5A4C]" aria-hidden="true" />

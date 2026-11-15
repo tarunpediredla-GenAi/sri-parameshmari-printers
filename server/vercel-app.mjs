@@ -151,7 +151,7 @@ import path from "node:path";
 import {
   applicationDefault,
   cert,
-  getApps,
+  getApp,
   initializeApp
 } from "firebase-admin/app";
 import { getAuth } from "firebase-admin/auth";
@@ -161,45 +161,67 @@ var appletConfig = fs.existsSync(configPath) ? JSON.parse(fs.readFileSync(config
 var adminApp = null;
 var adminFirestore = null;
 var hasServiceAccount = false;
+var dataProjectId = null;
+function getNamedApp(name) {
+  try {
+    return getApp(name);
+  } catch {
+    return null;
+  }
+}
 function initFirebaseAdmin() {
   if (adminApp) {
-    return { app: adminApp, db: adminFirestore, hasServiceAccount, config: appletConfig };
+    return {
+      app: adminApp,
+      db: adminFirestore,
+      hasServiceAccount,
+      config: appletConfig,
+      dataProjectId
+    };
   }
   const rawJson = process.env.FIREBASE_SERVICE_ACCOUNT_JSON?.trim();
   const credFile = process.env.GOOGLE_APPLICATION_CREDENTIALS?.trim();
   try {
-    const existingApps = getApps();
-    if (existingApps.length > 0) {
-      adminApp = existingApps[0];
+    adminApp = getNamedApp("auth") ?? initializeApp(
+      {
+        projectId: appletConfig.projectId,
+        storageBucket: process.env.FIREBASE_STORAGE_BUCKET || appletConfig.storageBucket
+      },
+      "auth"
+    );
+    const dataApp = getNamedApp("data");
+    if (dataApp) {
+      adminFirestore = getFirestore(dataApp);
+      adminFirestore.settings({ ignoreUndefinedProperties: true });
+      hasServiceAccount = true;
+      dataProjectId = dataApp.options.projectId ?? null;
     } else if (rawJson) {
       const parsed = JSON.parse(rawJson);
-      adminApp = initializeApp({
-        credential: cert(parsed),
-        projectId: appletConfig.projectId,
-        storageBucket: process.env.FIREBASE_STORAGE_BUCKET || appletConfig.storageBucket
-      });
+      dataProjectId = parsed.project_id || process.env.FIREBASE_DATA_PROJECT_ID || "sri-parameshmari-printers";
+      const app2 = initializeApp(
+        { credential: cert(parsed), projectId: dataProjectId },
+        "data"
+      );
+      adminFirestore = getFirestore(app2);
+      adminFirestore.settings({ ignoreUndefinedProperties: true });
       hasServiceAccount = true;
     } else if (credFile && fs.existsSync(credFile)) {
-      adminApp = initializeApp({
-        credential: applicationDefault(),
-        projectId: appletConfig.projectId,
-        storageBucket: process.env.FIREBASE_STORAGE_BUCKET || appletConfig.storageBucket
-      });
+      const app2 = initializeApp({ credential: applicationDefault() }, "data");
+      adminFirestore = getFirestore(app2);
+      adminFirestore.settings({ ignoreUndefinedProperties: true });
       hasServiceAccount = true;
-    } else {
-      adminApp = initializeApp({
-        projectId: appletConfig.projectId,
-        storageBucket: process.env.FIREBASE_STORAGE_BUCKET || appletConfig.storageBucket
-      });
-      hasServiceAccount = false;
-    }
-    if (hasServiceAccount && adminApp) {
-      adminFirestore = appletConfig.firestoreDatabaseId ? getFirestore(adminApp, appletConfig.firestoreDatabaseId) : getFirestore(adminApp);
+      dataProjectId = app2.options.projectId ?? null;
     }
   } catch (err) {
     console.warn("Firebase Admin initialization notice:", err instanceof Error ? err.message : err);
   }
-  return { app: adminApp, db: adminFirestore, hasServiceAccount, config: appletConfig };
+  return {
+    app: adminApp,
+    db: adminFirestore,
+    hasServiceAccount,
+    config: appletConfig,
+    dataProjectId
+  };
 }
 async function verifyBearerToken(authHeader) {
   if (!authHeader || !authHeader.startsWith("Bearer ")) {
@@ -238,29 +260,6 @@ async function verifyBearerToken(authHeader) {
 
 // server/razorpayUtils.ts
 import crypto from "node:crypto";
-var MIN_RAZORPAY_AMOUNT_PAISE = 100;
-function validateRazorpayOrderAmount(amountPaise) {
-  if (!Number.isInteger(amountPaise) || amountPaise < MIN_RAZORPAY_AMOUNT_PAISE) {
-    throw new Error(
-      `Minimum order amount for Razorpay is ${MIN_RAZORPAY_AMOUNT_PAISE} paise (\u20B91.00).`
-    );
-  }
-}
-function extractRazorpayErrorMessage(err, fallback) {
-  if (err instanceof Error && err.message.trim()) {
-    return err.message.trim();
-  }
-  if (typeof err === "object" && err !== null) {
-    const maybeErr = err;
-    if (typeof maybeErr.error?.description === "string" && maybeErr.error.description.trim()) {
-      return maybeErr.error.description.trim();
-    }
-    if (typeof maybeErr.message === "string" && maybeErr.message.trim()) {
-      return maybeErr.message.trim();
-    }
-  }
-  return fallback;
-}
 function verifyRazorpayCheckoutSignature(razorpayOrderId, razorpayPaymentId, signature, secret) {
   if (!razorpayOrderId || !razorpayPaymentId || !signature || !secret) {
     return false;
@@ -507,6 +506,7 @@ var SAMPLE_PRODUCTS = [
 ];
 
 // server/store.ts
+var isVercelRuntime = process.env.VERCEL === "1";
 var DATA_DIR = path2.resolve(process.cwd(), "data");
 var DATA_FILE = path2.join(DATA_DIR, "runtime-store.json");
 var PRIVATE_ARTWORK_DIR = path2.resolve(process.cwd(), "uploads", "private-artwork");
@@ -532,6 +532,7 @@ function defaultState() {
   };
 }
 function readLocalState() {
+  if (isVercelRuntime) return defaultState();
   ensureDirs();
   if (!fs2.existsSync(DATA_FILE)) {
     const initial = defaultState();
@@ -549,12 +550,28 @@ function readLocalState() {
   }
 }
 function writeLocalState(state) {
+  if (isVercelRuntime) throw new Error("Persistent storage is unavailable.");
   ensureDirs();
   fs2.writeFileSync(DATA_FILE, JSON.stringify(state, null, 2));
 }
 function getFirestoreIfReady() {
   const { db, hasServiceAccount: hasServiceAccount2 } = initFirebaseAdmin();
   return hasServiceAccount2 && db ? db : null;
+}
+function stripUndefined(value) {
+  if (Array.isArray(value)) {
+    return value.map((v) => stripUndefined(v));
+  }
+  if (value && typeof value === "object") {
+    const out = {};
+    for (const [k, v] of Object.entries(value)) {
+      if (v !== void 0) {
+        out[k] = stripUndefined(v);
+      }
+    }
+    return out;
+  }
+  return value;
 }
 async function getCatalogData() {
   const db = getFirestoreIfReady();
@@ -567,9 +584,10 @@ async function getCatalogData() {
       ]);
       const categories = catSnap.empty ? SAMPLE_CATEGORIES : catSnap.docs.map((d) => d.data());
       const products = prodSnap.empty ? SAMPLE_PRODUCTS : prodSnap.docs.map((d) => d.data());
-      const settings = settingsSnap.exists ? { ...settingsSnap.data(), gstPercentage: 0 } : DEFAULT_STORE_SETTINGS;
+      const settings = settingsSnap.exists ? settingsSnap.data() : DEFAULT_STORE_SETTINGS;
       return { categories, products, settings };
     } catch (err) {
+      if (isVercelRuntime) throw err;
       console.warn("Firestore catalog fallback:", err instanceof Error ? err.message : err);
     }
   }
@@ -577,13 +595,13 @@ async function getCatalogData() {
   return {
     categories: state.categories,
     products: state.products,
-    settings: { ...state.settings, gstPercentage: 0 }
+    settings: state.settings
   };
 }
 async function saveProduct(product) {
   const db = getFirestoreIfReady();
   if (db) {
-    await db.collection("products").doc(product.id).set(product);
+    await db.collection("products").doc(product.id).set(stripUndefined(product));
   }
   const state = readLocalState();
   const idx = state.products.findIndex((p) => p.id === product.id);
@@ -607,7 +625,7 @@ async function deleteProduct(productId) {
 async function saveCategory(category) {
   const db = getFirestoreIfReady();
   if (db) {
-    await db.collection("categories").doc(category.id).set(category);
+    await db.collection("categories").doc(category.id).set(stripUndefined(category));
   }
   const state = readLocalState();
   const idx = state.categories.findIndex((c) => c.id === category.id);
@@ -632,7 +650,7 @@ async function deleteCategory(categoryId) {
 async function saveStoreSettings(settings) {
   const db = getFirestoreIfReady();
   if (db) {
-    await db.collection("settings").doc("storefront").set(settings);
+    await db.collection("settings").doc("storefront").set(stripUndefined(settings));
   }
   const state = readLocalState();
   state.settings = settings;
@@ -657,7 +675,7 @@ async function saveArtworkRecord(record, buffer) {
         const file = bucket.file(record.storagePath);
         await file.save(buffer, { contentType: record.contentType, resumable: false });
       }
-      await db.collection("artwork_uploads").doc(record.id).set(record);
+      await db.collection("artwork_uploads").doc(record.id).set(stripUndefined(record));
     } catch (err) {
       console.warn("Firebase Storage/Firestore artwork notice:", err instanceof Error ? err.message : err);
     }
@@ -717,7 +735,8 @@ async function readArtworkBuffer(record) {
 async function saveOrder(order) {
   const db = getFirestoreIfReady();
   if (db) {
-    await db.collection("orders").doc(order.id).set(order);
+    await db.collection("orders").doc(order.id).set(stripUndefined(order));
+    if (isVercelRuntime) return order;
   }
   const state = readLocalState();
   const idx = state.orders.findIndex((o) => o.id === order.id);
@@ -728,6 +747,31 @@ async function saveOrder(order) {
   }
   writeLocalState(state);
   return order;
+}
+async function updateOrder(orderId, update) {
+  const db = getFirestoreIfReady();
+  if (db) {
+    const ref = db.collection("orders").doc(orderId);
+    return db.runTransaction(async (transaction) => {
+      const snapshot = await transaction.get(ref);
+      if (!snapshot.exists) throw new Error("Order not found.");
+      const current2 = snapshot.data();
+      const result2 = update(current2);
+      if (result2.order !== current2) transaction.set(ref, stripUndefined(result2.order));
+      return result2;
+    });
+  }
+  if (isVercelRuntime) throw new Error("Order storage is unavailable.");
+  const state = readLocalState();
+  const index = state.orders.findIndex((order) => order.id === orderId);
+  if (index === -1) throw new Error("Order not found.");
+  const current = state.orders[index];
+  const result = update(current);
+  if (result.order !== current) {
+    state.orders[index] = result.order;
+    writeLocalState(state);
+  }
+  return result;
 }
 async function getOrderById(orderId) {
   const db = getFirestoreIfReady();
@@ -793,7 +837,7 @@ async function recordPaymentEventIfNew(event) {
 async function saveQuote(quote) {
   const db = getFirestoreIfReady();
   if (db) {
-    await db.collection("quotes").doc(quote.id).set(quote);
+    await db.collection("quotes").doc(quote.id).set(stripUndefined(quote));
   }
   const state = readLocalState();
   const idx = state.quotes.findIndex((q) => q.id === quote.id);
@@ -855,6 +899,16 @@ async function getUserProfile(uid, email) {
     createdAt: now,
     updatedAt: now
   };
+  if (isVercelRuntime) {
+    if (!db) return created;
+    const ref = db.collection("users").doc(uid);
+    return db.runTransaction(async (transaction) => {
+      const existing = await transaction.get(ref);
+      if (existing.exists) return existing.data();
+      transaction.set(ref, created);
+      return created;
+    });
+  }
   state.profiles[uid] = created;
   writeLocalState(state);
   return created;
@@ -862,7 +916,8 @@ async function getUserProfile(uid, email) {
 async function saveUserProfile(profile) {
   const db = getFirestoreIfReady();
   if (db) {
-    await db.collection("users").doc(profile.uid).set(profile, { merge: true });
+    await db.collection("users").doc(profile.uid).set(stripUndefined(profile), { merge: true });
+    if (isVercelRuntime) return profile;
   }
   const state = readLocalState();
   state.profiles[profile.uid] = profile;
@@ -994,16 +1049,18 @@ function createApiApp() {
           res.status(404).json({ error: "Order not found for Razorpay order ID." });
           return;
         }
-        const transition = applyVerifiedPaymentTransition(order, {
-          razorpayOrderId: paymentEntity.order_id,
-          razorpayPaymentId: paymentEntity.id,
-          amountPaise: paymentEntity.amount,
-          currency: paymentEntity.currency,
-          status: paymentEntity.status,
-          actor: "razorpay_webhook",
-          nowIso: (/* @__PURE__ */ new Date()).toISOString()
-        });
-        await saveOrder(transition.order);
+        const transition = await updateOrder(
+          order.id,
+          (current) => applyVerifiedPaymentTransition(current, {
+            razorpayOrderId: paymentEntity.order_id,
+            razorpayPaymentId: paymentEntity.id,
+            amountPaise: paymentEntity.amount,
+            currency: paymentEntity.currency,
+            status: paymentEntity.status,
+            actor: "razorpay_webhook",
+            nowIso: (/* @__PURE__ */ new Date()).toISOString()
+          })
+        );
         res.json({
           received: true,
           orderId: transition.order.id,
@@ -1024,26 +1081,32 @@ function createApiApp() {
   });
   app2.get("/api/config/status", async (_req, res) => {
     const rzp = getRazorpayClient();
-    const { hasServiceAccount: hasServiceAccount2 } = initFirebaseAdmin();
-    const { settings } = await getCatalogData();
+    const { hasServiceAccount: hasServiceAccount2, dataProjectId: dataProjectId2, config } = initFirebaseAdmin();
     const appUrl = process.env.APP_URL || `http://localhost:${port}`;
     res.json({
-      razorpayConfigured: Boolean(rzp),
+      razorpayConfigured: Boolean(rzp) && (!isVercelRuntime || Boolean(getFirestoreIfReady())),
       razorpayKeyId: rzp?.keyId || null,
       razorpayMode: rzp?.keyId.startsWith("rzp_live_") ? "live" : "test",
       webhookSecretConfigured: Boolean(process.env.RAZORPAY_WEBHOOK_SECRET?.trim()),
       firebaseAdminConfigured: hasServiceAccount2,
-      maxArtworkSizeMb: settings.maxArtworkSizeMb || Number(process.env.MAX_ARTWORK_SIZE_MB || 25),
+      firebaseAuthProjectId: config.projectId,
+      firebaseDataProjectId: dataProjectId2,
+      maxArtworkSizeMb: Number(process.env.MAX_ARTWORK_SIZE_MB || 25),
       webhookUrlHint: `${appUrl.replace(/\/$/, "")}/api/webhooks/razorpay`
     });
   });
   app2.get("/api/catalog", async (_req, res) => {
-    const data = await getCatalogData();
-    res.json({
-      categories: data.categories.filter((c) => c.active),
-      products: data.products.filter((p) => p.published).map(sanitizeProductForPublic),
-      settings: data.settings
-    });
+    try {
+      const data = await getCatalogData();
+      res.json({
+        categories: data.categories.filter((c) => c.active),
+        products: data.products.filter((p) => p.published).map(sanitizeProductForPublic),
+        settings: data.settings
+      });
+    } catch (error) {
+      console.error("Unable to load catalog:", error);
+      res.status(503).json({ error: "The storefront is temporarily unavailable." });
+    }
   });
   app2.post(
     "/api/artwork/upload",
@@ -1135,6 +1198,10 @@ function createApiApp() {
   app2.post("/api/orders/checkout", requireAuth, async (req, res) => {
     try {
       const user = req.user;
+      if (isVercelRuntime && !getFirestoreIfReady()) {
+        res.status(503).json({ error: "Checkout is temporarily unavailable because order storage is offline." });
+        return;
+      }
       const rzp = getRazorpayClient();
       if (!rzp) {
         res.status(503).json({
@@ -1198,7 +1265,7 @@ function createApiApp() {
           });
           return;
         }
-        const brandBrief = typeof clientItem.brandBrief === "string" ? clientItem.brandBrief.trim().slice(0, 1200) : void 0;
+        const brandBrief = typeof clientItem.brandBrief === "string" && clientItem.brandBrief.trim() ? clientItem.brandBrief.trim().slice(0, 1200) : "";
         const basePrompt = product.designPrompt || `Design prompt for ${product.title}. Contact ${settings.email} with your order number if you need a tailored prompt.`;
         orderItems.push({
           cartItemId: clientItem.cartItemId || crypto2.randomUUID(),
@@ -1227,29 +1294,17 @@ function createApiApp() {
         deliveryMethod,
         settings
       );
-      validateRazorpayOrderAmount(totals.totalPaise);
       const orderId = `ord_${crypto2.randomUUID().replace(/-/g, "").slice(0, 14)}`;
       const orderNumber = `SPP-${(/* @__PURE__ */ new Date()).getFullYear()}-${Math.floor(1e5 + Math.random() * 9e5)}`;
-      let rzpOrder;
-      try {
-        rzpOrder = await rzp.client.orders.create({
-          amount: totals.totalPaise,
-          currency: "INR",
-          receipt: orderNumber,
-          notes: {
-            internalOrderId: orderId,
-            userId: user.uid
-          }
-        });
-      } catch (rzpErr) {
-        res.status(500).json({
-          error: extractRazorpayErrorMessage(
-            rzpErr,
-            "Razorpay order creation failed. Please try again."
-          )
-        });
-        return;
-      }
+      const rzpOrder = await rzp.client.orders.create({
+        amount: totals.totalPaise,
+        currency: "INR",
+        receipt: orderNumber,
+        notes: {
+          internalOrderId: orderId,
+          userId: user.uid
+        }
+      });
       const now = (/* @__PURE__ */ new Date()).toISOString();
       const newOrder = {
         id: orderId,
@@ -1313,13 +1368,9 @@ function createApiApp() {
         res.status(403).json({ error: "Forbidden." });
         return;
       }
-      const { razorpay_order_id, razorpay_payment_id, razorpay_signature } = req.body;
+      const { razorpay_payment_id, razorpay_signature } = req.body;
       if (!order.razorpayOrderId || !razorpay_payment_id || !razorpay_signature) {
         res.status(400).json({ error: "Missing Razorpay payment confirmation fields." });
-        return;
-      }
-      if (razorpay_order_id && razorpay_order_id !== order.razorpayOrderId) {
-        res.status(400).json({ error: "Razorpay order ID mismatch." });
         return;
       }
       const validSig = verifyRazorpayCheckoutSignature(
@@ -1332,18 +1383,7 @@ function createApiApp() {
         res.status(400).json({ error: "Payment signature verification failed." });
         return;
       }
-      let payment;
-      try {
-        payment = await rzp.client.payments.fetch(razorpay_payment_id);
-      } catch (rzpErr) {
-        res.status(500).json({
-          error: extractRazorpayErrorMessage(
-            rzpErr,
-            "Failed to fetch payment confirmation from Razorpay."
-          )
-        });
-        return;
-      }
+      const payment = await rzp.client.payments.fetch(razorpay_payment_id);
       if (payment.order_id !== order.razorpayOrderId) {
         res.status(400).json({ error: "Payment does not match the server Razorpay order ID." });
         return;
@@ -1360,17 +1400,19 @@ function createApiApp() {
         res.json({ order: latestOrder, alreadyPaid: true });
         return;
       }
-      const transition = applyVerifiedPaymentTransition(latestOrder, {
-        razorpayOrderId: payment.order_id,
-        razorpayPaymentId: payment.id,
-        amountPaise: Number(payment.amount),
-        currency: payment.currency,
-        status: payment.status,
-        actor: "checkout_verify",
-        nowIso: (/* @__PURE__ */ new Date()).toISOString()
-      });
-      await saveOrder(transition.order);
-      res.json({ order: transition.order, alreadyPaid: transition.alreadyPaid });
+      const transition = await updateOrder(
+        order.id,
+        (current) => applyVerifiedPaymentTransition(current, {
+          razorpayOrderId: payment.order_id,
+          razorpayPaymentId: payment.id,
+          amountPaise: Number(payment.amount),
+          currency: payment.currency,
+          status: payment.status,
+          actor: "checkout_verify",
+          nowIso: (/* @__PURE__ */ new Date()).toISOString()
+        })
+      );
+      res.json({ order: sanitizeOrderForCustomer(transition.order), alreadyPaid: transition.alreadyPaid });
     } catch (err) {
       res.status(400).json({
         error: err instanceof Error ? err.message : "Payment verification failed."
@@ -1398,41 +1440,52 @@ function createApiApp() {
         return;
       }
       if (order.paymentStatus === "paid") {
-        res.status(400).json({ error: "This order is already paid." });
+        res.json({ order, razorpay: null });
         return;
       }
-      validateRazorpayOrderAmount(order.totalPaise);
-      let rzpOrder;
-      try {
-        rzpOrder = await rzp.client.orders.create({
-          amount: order.totalPaise,
-          currency: "INR",
-          receipt: `${order.orderNumber}-R${Date.now().toString().slice(-4)}`,
-          notes: { internalOrderId: order.id, userId: user.uid, retry: "true" }
-        });
-      } catch (rzpErr) {
-        res.status(500).json({
-          error: extractRazorpayErrorMessage(
-            rzpErr,
-            "Razorpay retry order creation failed. Please try again."
-          )
-        });
+      if (!order.razorpayOrderId) {
+        res.status(409).json({ error: "This order has no Razorpay reference. Contact support with your order number." });
         return;
       }
-      const updated = {
-        ...order,
-        paymentStatus: "pending",
-        razorpayOrderId: rzpOrder.id,
-        updatedAt: (/* @__PURE__ */ new Date()).toISOString()
-      };
-      await saveOrder(updated);
+      const razorpayOrderId = order.razorpayOrderId;
+      const payments = await rzp.client.orders.fetchPayments(razorpayOrderId);
+      const captured = payments.items.find((payment) => payment.status === "captured");
+      if (captured) {
+        const transition = await updateOrder(
+          order.id,
+          (current2) => applyVerifiedPaymentTransition(current2, {
+            razorpayOrderId,
+            razorpayPaymentId: captured.id,
+            amountPaise: Number(captured.amount),
+            currency: captured.currency,
+            status: captured.status,
+            actor: "retry_payment",
+            nowIso: (/* @__PURE__ */ new Date()).toISOString()
+          })
+        );
+        res.json({ order: transition.order, razorpay: null });
+        return;
+      }
+      const current = await getOrderById(order.id);
+      if (!current || current.razorpayOrderId !== razorpayOrderId) {
+        res.status(409).json({ error: "The order changed. Refresh it and check payment status." });
+        return;
+      }
+      if (current.paymentStatus === "paid") {
+        res.json({ order: current, razorpay: null });
+        return;
+      }
+      if (payments.items.some((payment) => payment.status === "authorized")) {
+        res.status(409).json({ error: "Razorpay is confirming your payment. Use Check Payment Status before paying again." });
+        return;
+      }
       res.json({
-        order: updated,
+        order: sanitizeOrderForCustomer(current),
         razorpay: {
           keyId: rzp.keyId,
-          orderId: rzpOrder.id,
-          amountPaise: order.totalPaise,
-          currency: "INR"
+          orderId: razorpayOrderId,
+          amountPaise: current.totalPaise,
+          currency: current.currency
         }
       });
     } catch (err) {
@@ -1462,28 +1515,35 @@ function createApiApp() {
           return;
         }
         if (order.paymentStatus === "paid" || !order.razorpayOrderId) {
-          res.json({ order });
+          res.json({ order: sanitizeOrderForCustomer(order) });
           return;
         }
-        const payments = await rzp.client.orders.fetchPayments(order.razorpayOrderId);
-        const captured = payments.items?.find((p) => p.status === "captured");
-        const failed = !captured ? payments.items?.find((p) => p.status === "failed") : void 0;
-        const targetPayment = captured || failed;
+        const razorpayOrderId = order.razorpayOrderId;
+        const payments = await rzp.client.orders.fetchPayments(razorpayOrderId);
+        const captured = payments.items.find((payment) => payment.status === "captured");
+        const authorized = payments.items.some((payment) => payment.status === "authorized");
+        const failed = payments.items.find((payment) => payment.status === "failed");
+        const targetPayment = captured || (authorized ? void 0 : failed);
         if (!targetPayment) {
-          res.json({ order, message: "Payment is still awaiting confirmation from Razorpay." });
+          res.json({
+            order: sanitizeOrderForCustomer(order),
+            message: "Payment is still awaiting confirmation from Razorpay."
+          });
           return;
         }
-        const transition = applyVerifiedPaymentTransition(order, {
-          razorpayOrderId: order.razorpayOrderId,
-          razorpayPaymentId: targetPayment.id,
-          amountPaise: Number(targetPayment.amount),
-          currency: targetPayment.currency,
-          status: targetPayment.status,
-          actor: "status_check",
-          nowIso: (/* @__PURE__ */ new Date()).toISOString()
-        });
-        await saveOrder(transition.order);
-        res.json({ order: transition.order });
+        const transition = await updateOrder(
+          order.id,
+          (current) => applyVerifiedPaymentTransition(current, {
+            razorpayOrderId,
+            razorpayPaymentId: targetPayment.id,
+            amountPaise: Number(targetPayment.amount),
+            currency: targetPayment.currency,
+            status: targetPayment.status,
+            actor: "status_check",
+            nowIso: (/* @__PURE__ */ new Date()).toISOString()
+          })
+        );
+        res.json({ order: sanitizeOrderForCustomer(transition.order) });
       } catch (err) {
         res.status(400).json({
           error: err instanceof Error ? err.message : "Failed to check payment status."
@@ -1502,19 +1562,31 @@ function createApiApp() {
       res.status(403).json({ error: "Forbidden." });
       return;
     }
-    if (order.paymentStatus === "paid") {
-      res.json({ order });
-      return;
-    }
     const reason = typeof req.body?.reason === "string" ? req.body.reason.slice(0, 240) : "Checkout cancelled or payment declined.";
-    const updated = {
-      ...order,
-      paymentStatus: "failed",
-      paymentFailureReason: reason,
-      updatedAt: (/* @__PURE__ */ new Date()).toISOString()
-    };
-    await saveOrder(updated);
-    res.json({ order: updated });
+    const { code, source, step, reason: gatewayReason, paymentId } = req.body?.failure ?? {};
+    const safeField = (value) => typeof value === "string" && /^[a-zA-Z0-9_-]{1,100}$/.test(value) ? value : void 0;
+    console.info("Razorpay Checkout payment.failed", {
+      orderNumber: order.orderNumber,
+      razorpayOrderId: order.razorpayOrderId,
+      paymentId: safeField(paymentId),
+      code: safeField(code),
+      source: safeField(source),
+      step: safeField(step),
+      reason: safeField(gatewayReason)
+    });
+    try {
+      const result = await updateOrder(order.id, (current) => ({
+        order: current.paymentStatus === "paid" || current.razorpayOrderId !== order.razorpayOrderId ? current : {
+          ...current,
+          paymentStatus: "failed",
+          paymentFailureReason: reason,
+          updatedAt: (/* @__PURE__ */ new Date()).toISOString()
+        }
+      }));
+      res.json({ order: sanitizeOrderForCustomer(result.order) });
+    } catch {
+      res.status(500).json({ error: "Payment failure could not be saved. Use Check Payment Status." });
+    }
   });
   app2.get("/api/orders/my", requireAuth, async (req, res) => {
     const orders = await listOrdersForUser(req.user.uid);
@@ -1812,7 +1884,6 @@ function createApiApp() {
     const updated = {
       ...body,
       id: "storefront",
-      gstPercentage: 0,
       updatedAt: (/* @__PURE__ */ new Date()).toISOString()
     };
     await saveStoreSettings(updated);

@@ -334,6 +334,36 @@ export async function saveOrder(order: Order): Promise<Order> {
   return order;
 }
 
+export async function updateOrder<T extends { order: Order }>(
+  orderId: string,
+  update: (current: Order) => T
+): Promise<T> {
+  const db = getFirestoreIfReady();
+  if (db) {
+    const ref = db.collection('orders').doc(orderId);
+    return db.runTransaction(async (transaction) => {
+      const snapshot = await transaction.get(ref);
+      if (!snapshot.exists) throw new Error('Order not found.');
+      const current = snapshot.data() as Order;
+      const result = update(current);
+      if (result.order !== current) transaction.set(ref, stripUndefined(result.order));
+      return result;
+    });
+  }
+  if (isVercelRuntime) throw new Error('Order storage is unavailable.');
+
+  const state = readLocalState();
+  const index = state.orders.findIndex((order) => order.id === orderId);
+  if (index === -1) throw new Error('Order not found.');
+  const current = state.orders[index];
+  const result = update(current);
+  if (result.order !== current) {
+    state.orders[index] = result.order;
+    writeLocalState(state);
+  }
+  return result;
+}
+
 export async function getOrderById(orderId: string): Promise<Order | null> {
   const db = getFirestoreIfReady();
   if (db) {

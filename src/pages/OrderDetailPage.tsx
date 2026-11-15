@@ -17,7 +17,8 @@ import { apiFetch, fetchAuthorizedArtworkBlobUrl } from '../lib/api';
 import { FULFILLMENT_LABELS, formatInrFromPaise } from '../lib/pricing';
 import {
   ensureRazorpayCheckoutLoaded,
-  extractRazorpayFailureMessage,
+  extractRazorpayFailure,
+  type RazorpayRetryResponse,
 } from '../lib/razorpayClient';
 import type { FulfillmentStatus, Order } from '../types/print';
 
@@ -92,14 +93,17 @@ export default function OrderDetailPage() {
     setBusy(true);
     setError(null);
     try {
-      const RazorpayCtor = await ensureRazorpayCheckoutLoaded();
       const token = await getFreshToken();
       if (!token) throw new Error('Sign in required.');
-      const res = await apiFetch<{
-        order: Order;
-        razorpay: { keyId: string; orderId: string; amountPaise: number; currency: string };
-      }>(`/api/orders/${order.id}/retry-payment`, { method: 'POST' }, token);
+      const res = await apiFetch<RazorpayRetryResponse>(`/api/orders/${order.id}/retry-payment`, { method: 'POST' }, token);
 
+      setOrder(res.order);
+      if (!res.razorpay) {
+        setBusy(false);
+        return;
+      }
+
+      const RazorpayCtor = await ensureRazorpayCheckoutLoaded();
       const publicKeyId = res.razorpay.keyId || import.meta.env.VITE_RAZORPAY_KEY_ID;
       if (!publicKeyId) {
         throw new Error('Razorpay public Key ID is missing.');
@@ -126,6 +130,9 @@ export default function OrderDetailPage() {
               token
             );
             setOrder(verified.order);
+            if (verified.order.paymentStatus !== 'paid') {
+              setError('Razorpay is confirming your payment. Use Check Payment Status.');
+            }
           } catch (verifyErr) {
             setError(
               verifyErr instanceof Error
@@ -145,18 +152,18 @@ export default function OrderDetailPage() {
       });
 
       rzp.on('payment.failed', async (failRes: unknown) => {
-        const msg = extractRazorpayFailureMessage(failRes);
+        const failure = extractRazorpayFailure(failRes);
         try {
           const failed = await apiFetch<{ order: Order }>(
             `/api/orders/${order.id}/mark-failed`,
-            { method: 'POST', body: JSON.stringify({ reason: msg }) },
+            { method: 'POST', body: JSON.stringify(failure) },
             token
           );
           setOrder(failed.order);
         } catch {
           // ignore
         }
-        setError(msg);
+        setError(failure.reason);
         setBusy(false);
       });
 

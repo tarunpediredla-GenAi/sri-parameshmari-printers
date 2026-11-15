@@ -56,6 +56,7 @@ import {
   saveStoreSettings,
   saveUserProfile,
   updateArtworkStatus,
+  updateOrder,
   type ArtworkRecord,
 } from './server/store';
 
@@ -220,17 +221,17 @@ export function createApiApp() {
           return;
         }
 
-        const transition = applyVerifiedPaymentTransition(order, {
-          razorpayOrderId: paymentEntity.order_id,
-          razorpayPaymentId: paymentEntity.id,
-          amountPaise: paymentEntity.amount,
-          currency: paymentEntity.currency,
-          status: paymentEntity.status,
-          actor: 'razorpay_webhook',
-          nowIso: new Date().toISOString(),
-        });
-
-        await saveOrder(transition.order);
+        const transition = await updateOrder(order.id, (current) =>
+          applyVerifiedPaymentTransition(current, {
+            razorpayOrderId: paymentEntity.order_id,
+            razorpayPaymentId: paymentEntity.id,
+            amountPaise: paymentEntity.amount,
+            currency: paymentEntity.currency,
+            status: paymentEntity.status,
+            actor: 'razorpay_webhook',
+            nowIso: new Date().toISOString(),
+          })
+        );
         res.json({
           received: true,
           orderId: transition.order.id,
@@ -640,18 +641,18 @@ export function createApiApp() {
         return;
       }
 
-      const transition = applyVerifiedPaymentTransition(latestOrder, {
-        razorpayOrderId: payment.order_id,
-        razorpayPaymentId: payment.id,
-        amountPaise: Number(payment.amount),
-        currency: payment.currency,
-        status: payment.status,
-        actor: 'checkout_verify',
-        nowIso: new Date().toISOString(),
-      });
-
-      await saveOrder(transition.order);
-      res.json({ order: transition.order, alreadyPaid: transition.alreadyPaid });
+      const transition = await updateOrder(order.id, (current) =>
+        applyVerifiedPaymentTransition(current, {
+          razorpayOrderId: payment.order_id,
+          razorpayPaymentId: payment.id,
+          amountPaise: Number(payment.amount),
+          currency: payment.currency,
+          status: payment.status,
+          actor: 'checkout_verify',
+          nowIso: new Date().toISOString(),
+        })
+      );
+      res.json({ order: sanitizeOrderForCustomer(transition.order), alreadyPaid: transition.alreadyPaid });
     } catch (err) {
       res.status(400).json({
         error: err instanceof Error ? err.message : 'Payment verification failed.',
@@ -681,32 +682,54 @@ export function createApiApp() {
         return;
       }
       if (order.paymentStatus === 'paid') {
-        res.status(400).json({ error: 'This order is already paid.' });
+        res.json({ order, razorpay: null });
+        return;
+      }
+      if (!order.razorpayOrderId) {
+        res.status(409).json({ error: 'This order has no Razorpay reference. Contact support with your order number.' });
         return;
       }
 
-      const rzpOrder = await rzp.client.orders.create({
-        amount: order.totalPaise,
-        currency: 'INR',
-        receipt: `${order.orderNumber}-R${Date.now().toString().slice(-4)}`,
-        notes: { internalOrderId: order.id, userId: user.uid, retry: 'true' },
-      });
+      const razorpayOrderId = order.razorpayOrderId;
+      const payments = await rzp.client.orders.fetchPayments(razorpayOrderId);
+      const captured = payments.items.find((payment) => payment.status === 'captured');
+      if (captured) {
+        const transition = await updateOrder(order.id, (current) =>
+          applyVerifiedPaymentTransition(current, {
+            razorpayOrderId,
+            razorpayPaymentId: captured.id,
+            amountPaise: Number(captured.amount),
+            currency: captured.currency,
+            status: captured.status,
+            actor: 'retry_payment',
+            nowIso: new Date().toISOString(),
+          })
+        );
+        res.json({ order: transition.order, razorpay: null });
+        return;
+      }
 
-      const updated: Order = {
-        ...order,
-        paymentStatus: 'pending',
-        razorpayOrderId: rzpOrder.id,
-        updatedAt: new Date().toISOString(),
-      };
-      await saveOrder(updated);
+      const current = await getOrderById(order.id);
+      if (!current || current.razorpayOrderId !== razorpayOrderId) {
+        res.status(409).json({ error: 'The order changed. Refresh it and check payment status.' });
+        return;
+      }
+      if (current.paymentStatus === 'paid') {
+        res.json({ order: current, razorpay: null });
+        return;
+      }
+      if (payments.items.some((payment) => payment.status === 'authorized')) {
+        res.status(409).json({ error: 'Razorpay is confirming your payment. Use Check Payment Status before paying again.' });
+        return;
+      }
 
       res.json({
-        order: updated,
+        order: sanitizeOrderForCustomer(current),
         razorpay: {
           keyId: rzp.keyId,
-          orderId: rzpOrder.id,
-          amountPaise: order.totalPaise,
-          currency: 'INR',
+          orderId: razorpayOrderId,
+          amountPaise: current.totalPaise,
+          currency: current.currency,
         },
       });
     } catch (err) {
@@ -738,32 +761,38 @@ export function createApiApp() {
           return;
         }
         if (order.paymentStatus === 'paid' || !order.razorpayOrderId) {
-          res.json({ order });
+          res.json({ order: sanitizeOrderForCustomer(order) });
           return;
         }
 
-        const payments = await rzp.client.orders.fetchPayments(order.razorpayOrderId);
-        const captured = payments.items?.find((p) => p.status === 'captured');
-        const failed = !captured ? payments.items?.find((p) => p.status === 'failed') : undefined;
-        const targetPayment = captured || failed;
+        const razorpayOrderId = order.razorpayOrderId;
+        const payments = await rzp.client.orders.fetchPayments(razorpayOrderId);
+        const captured = payments.items.find((payment) => payment.status === 'captured');
+        const authorized = payments.items.some((payment) => payment.status === 'authorized');
+        const failed = payments.items.find((payment) => payment.status === 'failed');
+        const targetPayment = captured || (authorized ? undefined : failed);
 
         if (!targetPayment) {
-          res.json({ order, message: 'Payment is still awaiting confirmation from Razorpay.' });
+          res.json({
+            order: sanitizeOrderForCustomer(order),
+            message: 'Payment is still awaiting confirmation from Razorpay.',
+          });
           return;
         }
 
-        const transition = applyVerifiedPaymentTransition(order, {
-          razorpayOrderId: order.razorpayOrderId,
-          razorpayPaymentId: targetPayment.id,
-          amountPaise: Number(targetPayment.amount),
-          currency: targetPayment.currency,
-          status: targetPayment.status,
-          actor: 'status_check',
-          nowIso: new Date().toISOString(),
-        });
+        const transition = await updateOrder(order.id, (current) =>
+          applyVerifiedPaymentTransition(current, {
+            razorpayOrderId,
+            razorpayPaymentId: targetPayment.id,
+            amountPaise: Number(targetPayment.amount),
+            currency: targetPayment.currency,
+            status: targetPayment.status,
+            actor: 'status_check',
+            nowIso: new Date().toISOString(),
+          })
+        );
 
-        await saveOrder(transition.order);
-        res.json({ order: transition.order });
+        res.json({ order: sanitizeOrderForCustomer(transition.order) });
       } catch (err) {
         res.status(400).json({
           error: err instanceof Error ? err.message : 'Failed to check payment status.',
@@ -783,22 +812,38 @@ export function createApiApp() {
       res.status(403).json({ error: 'Forbidden.' });
       return;
     }
-    if (order.paymentStatus === 'paid') {
-      res.json({ order });
-      return;
-    }
     const reason =
       typeof req.body?.reason === 'string'
         ? req.body.reason.slice(0, 240)
         : 'Checkout cancelled or payment declined.';
-    const updated: Order = {
-      ...order,
-      paymentStatus: 'failed',
-      paymentFailureReason: reason,
-      updatedAt: new Date().toISOString(),
-    };
-    await saveOrder(updated);
-    res.json({ order: updated });
+    const { code, source, step, reason: gatewayReason, paymentId } = req.body?.failure ?? {};
+    const safeField = (value: unknown) =>
+      typeof value === 'string' && /^[a-zA-Z0-9_-]{1,100}$/.test(value) ? value : undefined;
+    console.info('Razorpay Checkout payment.failed', {
+      orderNumber: order.orderNumber,
+      razorpayOrderId: order.razorpayOrderId,
+      paymentId: safeField(paymentId),
+      code: safeField(code),
+      source: safeField(source),
+      step: safeField(step),
+      reason: safeField(gatewayReason),
+    });
+
+    try {
+      const result = await updateOrder(order.id, (current) => ({
+        order: current.paymentStatus === 'paid' || current.razorpayOrderId !== order.razorpayOrderId
+          ? current
+          : {
+              ...current,
+              paymentStatus: 'failed',
+              paymentFailureReason: reason,
+              updatedAt: new Date().toISOString(),
+            },
+      }));
+      res.json({ order: sanitizeOrderForCustomer(result.order) });
+    } catch {
+      res.status(500).json({ error: 'Payment failure could not be saved. Use Check Payment Status.' });
+    }
   });
 
   app.get('/api/orders/my', requireAuth, async (req: AuthedRequest, res: Response) => {
