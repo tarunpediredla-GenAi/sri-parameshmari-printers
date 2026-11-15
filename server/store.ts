@@ -48,6 +48,7 @@ interface LocalRuntimeState {
   admins: string[];
 }
 
+export const isVercelRuntime = process.env.VERCEL === '1';
 const DATA_DIR = path.resolve(process.cwd(), 'data');
 const DATA_FILE = path.join(DATA_DIR, 'runtime-store.json');
 export const PRIVATE_ARTWORK_DIR = path.resolve(process.cwd(), 'uploads', 'private-artwork');
@@ -76,6 +77,7 @@ function defaultState(): LocalRuntimeState {
 }
 
 function readLocalState(): LocalRuntimeState {
+  if (isVercelRuntime) return defaultState();
   ensureDirs();
   if (!fs.existsSync(DATA_FILE)) {
     const initial = defaultState();
@@ -94,11 +96,12 @@ function readLocalState(): LocalRuntimeState {
 }
 
 function writeLocalState(state: LocalRuntimeState) {
+  if (isVercelRuntime) throw new Error('Persistent storage is unavailable.');
   ensureDirs();
   fs.writeFileSync(DATA_FILE, JSON.stringify(state, null, 2));
 }
 
-function getFirestoreIfReady() {
+export function getFirestoreIfReady() {
   const { db, hasServiceAccount } = initFirebaseAdmin();
   return hasServiceAccount && db ? db : null;
 }
@@ -149,6 +152,7 @@ export async function getCatalogData(): Promise<{
 
       return { categories, products, settings };
     } catch (err) {
+      if (isVercelRuntime) throw err;
       console.warn('Firestore catalog fallback:', err instanceof Error ? err.message : err);
     }
   }
@@ -317,6 +321,7 @@ export async function saveOrder(order: Order): Promise<Order> {
   const db = getFirestoreIfReady();
   if (db) {
     await db.collection('orders').doc(order.id).set(stripUndefined(order));
+    if (isVercelRuntime) return order;
   }
   const state = readLocalState();
   const idx = state.orders.findIndex((o) => o.id === order.id);
@@ -480,6 +485,16 @@ export async function getUserProfile(uid: string, email: string): Promise<UserPr
     createdAt: now,
     updatedAt: now,
   };
+  if (isVercelRuntime) {
+    if (!db) return created;
+    const ref = db.collection('users').doc(uid);
+    return db.runTransaction(async (transaction) => {
+      const existing = await transaction.get(ref);
+      if (existing.exists) return existing.data() as UserProfile;
+      transaction.set(ref, created);
+      return created;
+    });
+  }
   state.profiles[uid] = created;
   writeLocalState(state);
   return created;
@@ -489,6 +504,7 @@ export async function saveUserProfile(profile: UserProfile): Promise<UserProfile
   const db = getFirestoreIfReady();
   if (db) {
     await db.collection('users').doc(profile.uid).set(stripUndefined(profile), { merge: true });
+    if (isVercelRuntime) return profile;
   }
   const state = readLocalState();
   state.profiles[profile.uid] = profile;

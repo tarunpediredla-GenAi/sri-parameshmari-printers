@@ -36,6 +36,8 @@ import {
   deleteProduct,
   getArtworkRecord,
   getCatalogData,
+  getFirestoreIfReady,
+  isVercelRuntime,
   getOrderById,
   getOrderByRazorpayOrderId,
   getQuoteById,
@@ -255,28 +257,32 @@ export function createApiApp() {
   app.get('/api/config/status', async (_req, res) => {
     const rzp = getRazorpayClient();
     const { hasServiceAccount, dataProjectId, config } = initFirebaseAdmin();
-    const { settings } = await getCatalogData();
     const appUrl = process.env.APP_URL || `http://localhost:${port}`;
     res.json({
-      razorpayConfigured: Boolean(rzp),
+      razorpayConfigured: Boolean(rzp) && (!isVercelRuntime || Boolean(getFirestoreIfReady())),
       razorpayKeyId: rzp?.keyId || null,
       razorpayMode: rzp?.keyId.startsWith('rzp_live_') ? 'live' : 'test',
       webhookSecretConfigured: Boolean(process.env.RAZORPAY_WEBHOOK_SECRET?.trim()),
       firebaseAdminConfigured: hasServiceAccount,
       firebaseAuthProjectId: config.projectId,
       firebaseDataProjectId: dataProjectId,
-      maxArtworkSizeMb: settings.maxArtworkSizeMb || Number(process.env.MAX_ARTWORK_SIZE_MB || 25),
+      maxArtworkSizeMb: Number(process.env.MAX_ARTWORK_SIZE_MB || 25),
       webhookUrlHint: `${appUrl.replace(/\/$/, '')}/api/webhooks/razorpay`,
     });
   });
 
   app.get('/api/catalog', async (_req, res) => {
-    const data = await getCatalogData();
-    res.json({
-      categories: data.categories.filter((c) => c.active),
-      products: data.products.filter((p) => p.published).map(sanitizeProductForPublic),
-      settings: data.settings,
-    });
+    try {
+      const data = await getCatalogData();
+      res.json({
+        categories: data.categories.filter((c) => c.active),
+        products: data.products.filter((p) => p.published).map(sanitizeProductForPublic),
+        settings: data.settings,
+      });
+    } catch (error) {
+      console.error('Unable to load catalog:', error);
+      res.status(503).json({ error: 'The storefront is temporarily unavailable.' });
+    }
   });
 
   // 4. Private Artwork Upload & Authorized Retrieval
@@ -383,6 +389,10 @@ export function createApiApp() {
   app.post('/api/orders/checkout', requireAuth, async (req: AuthedRequest, res: Response) => {
     try {
       const user = req.user!;
+      if (isVercelRuntime && !getFirestoreIfReady()) {
+        res.status(503).json({ error: 'Checkout is temporarily unavailable because order storage is offline.' });
+        return;
+      }
       const rzp = getRazorpayClient();
       if (!rzp) {
         res.status(503).json({
