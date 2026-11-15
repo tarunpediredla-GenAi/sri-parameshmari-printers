@@ -223,7 +223,7 @@ export default function AdminPage() {
       shortDescription: '',
       description: '',
       imageUrl: '/images/website-designs.jpg',
-      basePricePaise: 500000,
+      basePricePaise: 49900,
       turnaroundDays: 'Instant Prompt Unlock',
       artworkRequired: false,
       featured: false,
@@ -764,7 +764,7 @@ export default function AdminPage() {
                 </div>
                 <div>
                   <label className="block text-xs font-semibold text-[#3A261B] mb-1">
-                    Base Price (Paise, e.g. 500000 = ₹5,000)
+                    Base Price (Paise, e.g. 49900 = ₹499)
                   </label>
                   <input
                     type="number"

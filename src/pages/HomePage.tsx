@@ -19,11 +19,16 @@ export default function HomePage() {
   const { categories, products, settings } = useStore();
   const navigate = useNavigate();
 
-  const spotlightProducts = [
-    products.find((p) => p.id === 'prod-ecommerce-website-design') || products[0],
-    products.find((p) => p.id === 'prod-gold-foil-business-cards') || products[1] || products[0],
-    products.find((p) => p.id === 'prod-royal-wedding-invitations') || products[2] || products[0],
-  ].filter(Boolean);
+  const spotlightCandidates = [
+    products.find((p) => p.id === 'prod-ecommerce-website-design'),
+    products[0],
+    products[1],
+    products[2],
+  ].filter((p): p is NonNullable<typeof p> => Boolean(p));
+
+  const spotlightProducts = Array.from(
+    new Map(spotlightCandidates.map((p) => [p.id, p])).values()
+  ).slice(0, 3);
 
   const [spotlightIdx, setSpotlightIdx] = useState(0);
   const [openFaqId, setOpenFaqId] = useState<string | null>(DEFAULT_FAQS[0].id);
@@ -100,22 +105,24 @@ export default function HomePage() {
                     <span className="text-xs font-bold tracking-wider uppercase text-[#F59E0B]">
                       Featured Design
                     </span>
-                    <div className="flex items-center gap-1 bg-[#231710] p-1 rounded-lg border border-[#4D6F5E]/40">
-                      {spotlightProducts.map((sp, idx) => (
-                        <button
-                          key={sp.id}
-                          type="button"
-                          onClick={() => setSpotlightIdx(idx)}
-                          className={`px-2.5 py-1 rounded-md text-xs font-semibold transition-colors whitespace-nowrap shrink-0 ${
-                            spotlightIdx === idx
-                              ? 'bg-[#F59E0B] text-[#231710]'
-                              : 'text-[#D7DFD6] hover:text-white'
-                          }`}
-                        >
-                          {sp.categoryName.split(' ')[0]}
-                        </button>
-                      ))}
-                    </div>
+                    {spotlightProducts.length > 1 && (
+                      <div className="flex items-center gap-1 bg-[#231710] p-1 rounded-lg border border-[#4D6F5E]/40">
+                        {spotlightProducts.map((sp, idx) => (
+                          <button
+                            key={sp.id}
+                            type="button"
+                            onClick={() => setSpotlightIdx(idx)}
+                            className={`px-2.5 py-1 rounded-md text-xs font-semibold transition-colors whitespace-nowrap shrink-0 ${
+                              spotlightIdx === idx
+                                ? 'bg-[#F59E0B] text-[#231710]'
+                                : 'text-[#D7DFD6] hover:text-white'
+                            }`}
+                          >
+                            {sp.categoryName.split(' ')[0]}
+                          </button>
+                        ))}
+                      </div>
+                    )}
                   </div>
 
                   <div className="relative aspect-[4/3] rounded-xl overflow-hidden border border-[#4D6F5E]/50 bg-[#231710]">
@@ -286,7 +293,13 @@ export default function HomePage() {
             </Link>
           </div>
 
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+          <div
+            className={
+              featuredProducts.length === 1
+                ? 'max-w-md'
+                : 'grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6'
+            }
+          >
             {featuredProducts.map((product) => (
               <ProductCard key={product.id} product={product} />
             ))}

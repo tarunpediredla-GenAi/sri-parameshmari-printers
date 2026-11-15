@@ -11,69 +11,60 @@ import {
 } from './pricing';
 
 test('calculateItemPricing computes exact integer paise for valid options and tier', () => {
-  const websiteProduct = SAMPLE_PRODUCTS[0]; // base 1500000 (₹15,000)
+  const websiteProduct = SAMPLE_PRODUCTS[0]; // base 49900 (₹499)
+  const basePriced = calculateItemPricing(
+    websiteProduct,
+    {
+      scope: 'landing',
+      style: 'sage-walnut',
+      delivery: 'instant',
+    },
+    1
+  );
+  assert.equal(basePriced.unitPackPricePaise, 49900);
+
   const priced = calculateItemPricing(
     websiteProduct,
     {
-      scope: 'multi-store', // +500000
-      style: 'minimal-editorial', // +200000
-      delivery: 'tailored', // +300000, +1d
+      scope: 'multi-store', // +20000
+      style: 'minimal-editorial', // +10000
+      delivery: 'tailored', // +20000, +1d
     },
     3 // multiplier 1.4
   );
-  // (1500000 + 500000 + 200000 + 300000) * 1.4 = 2500000 * 1.4 = 3500000 (₹35,000)
-  assert.equal(priced.unitPackPricePaise, 3500000);
+  // (49900 + 20000 + 10000 + 20000) * 1.4 = 99900 * 1.4 = 139860 (₹1,398.60)
+  assert.equal(priced.unitPackPricePaise, 139860);
   assert.match(priced.turnaroundDays, /\+1d custom/);
   assert.equal(priced.selectedOptionLabels.scope, 'Multi-Page Storefront Prompt');
 });
 
-test('all sample product prices and pack configurations stay between ₹5,000 and ₹50,000', () => {
-  const minPaise = 500000;
-  const maxPaise = 5000000;
+test('catalog keeps exactly one product with ₹499 (49900 paise) minimum price', () => {
+  assert.equal(SAMPLE_PRODUCTS.length, 1);
+  const product = SAMPLE_PRODUCTS[0];
+  assert.equal(product.basePricePaise, 49900);
 
-  for (const product of SAMPLE_PRODUCTS) {
-    assert.ok(
-      product.basePricePaise >= minPaise && product.basePricePaise <= maxPaise,
-      `${product.id} base price ${product.basePricePaise} out of ₹5,000–₹50,000 range`
-    );
-
-    const minChoiceSum = product.optionGroups.reduce(
-      (sum, g) => sum + Math.min(...g.choices.map((c) => c.priceDeltaPaise)),
-      0
-    );
-    const maxChoiceSum = product.optionGroups.reduce(
-      (sum, g) => sum + Math.max(...g.choices.map((c) => c.priceDeltaPaise)),
-      0
-    );
-
-    for (const tier of product.quantityTiers) {
-      const lowestPack = Math.round((product.basePricePaise + minChoiceSum) * tier.multiplier);
-      const highestPack = Math.round((product.basePricePaise + maxChoiceSum) * tier.multiplier);
-      assert.ok(
-        lowestPack >= minPaise,
-        `${product.id} tier ${tier.quantity} min pack ${lowestPack} < ₹5,000`
-      );
-      assert.ok(
-        highestPack <= maxPaise,
-        `${product.id} tier ${tier.quantity} max pack ${highestPack} > ₹50,000`
-      );
-    }
-  }
+  const minChoiceSum = product.optionGroups.reduce(
+    (sum, g) => sum + Math.min(...g.choices.map((c) => c.priceDeltaPaise)),
+    0
+  );
+  const minMultiplier = Math.min(...product.quantityTiers.map((t) => t.multiplier));
+  const lowestPack = Math.round((product.basePricePaise + minChoiceSum) * minMultiplier);
+  assert.equal(lowestPack, 49900);
 });
 
 test('calculateItemPricing rejects tampered option or quantity tier', () => {
-  const cardProduct = SAMPLE_PRODUCTS[1];
+  const product = SAMPLE_PRODUCTS[0];
   assert.throws(() =>
     calculateItemPricing(
-      cardProduct,
-      { format: 'tampered-free', sides: 'double' },
+      product,
+      { scope: 'tampered-free', style: 'sage-walnut', delivery: 'instant' },
       1
     )
   );
   assert.throws(() =>
     calculateItemPricing(
-      cardProduct,
-      { format: 'landscape', sides: 'double' },
+      product,
+      { scope: 'landing', style: 'sage-walnut', delivery: 'instant' },
       99999
     )
   );
