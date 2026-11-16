@@ -411,6 +411,7 @@ export function createApiApp() {
         deliveryMethod?: 'digital' | 'shipping' | 'pickup';
         customerName?: string;
         customerPhone?: string;
+        customerEmail?: string;
         shippingAddress?: Order['shippingAddress'];
       };
 
@@ -428,7 +429,18 @@ export function createApiApp() {
             : 'digital';
 
       const customerName = body.customerName?.trim();
-      const customerPhone = body.customerPhone?.trim();
+      const rawPhone = body.customerPhone?.trim() || '';
+      const phoneDigits = rawPhone.replace(/\D/g, '');
+      const customerPhone =
+        phoneDigits.length === 10
+          ? `+91${phoneDigits}`
+          : rawPhone.startsWith('+')
+            ? rawPhone.replace(/\s+/g, '')
+            : phoneDigits
+              ? `+${phoneDigits}`
+              : rawPhone;
+      const customerEmail = (body.customerEmail || user.email || '').trim().toLowerCase();
+
       if (!customerName || !customerPhone) {
         res.status(400).json({ error: 'Customer name and phone number are required.' });
         return;
@@ -536,7 +548,7 @@ export function createApiApp() {
         id: orderId,
         orderNumber,
         userId: user.uid,
-        customerEmail: user.email,
+        customerEmail: customerEmail || user.email || '',
         customerName,
         customerPhone,
         deliveryMethod,

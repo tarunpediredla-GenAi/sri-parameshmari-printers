@@ -7,6 +7,12 @@ export interface RazorpayModalOptions {
   name: string;
   description: string;
   order_id: string;
+  remember_customer?: boolean;
+  retry?: {
+    enabled?: boolean;
+    max_count?: number;
+  };
+  notes?: Record<string, string>;
   prefill?: {
     name?: string;
     email?: string;

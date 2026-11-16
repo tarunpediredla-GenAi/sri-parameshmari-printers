@@ -33,6 +33,7 @@ export default function CheckoutPage() {
 
   const [customerName, setCustomerName] = useState('');
   const [customerPhone, setCustomerPhone] = useState('');
+  const [customerEmail, setCustomerEmail] = useState('');
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [pendingOrder, setPendingOrder] = useState<Order | null>(null);
@@ -41,8 +42,10 @@ export default function CheckoutPage() {
     if (profile) {
       setCustomerName((prev) => prev || profile.displayName || user?.displayName || '');
       setCustomerPhone((prev) => prev || profile.phone || '');
-    } else if (user?.displayName) {
+      setCustomerEmail((prev) => prev || profile.email || user?.email || '');
+    } else if (user?.displayName || user?.email) {
       setCustomerName((prev) => prev || user.displayName || '');
+      setCustomerEmail((prev) => prev || user.email || '');
     }
   }, [profile, user]);
 
@@ -74,17 +77,36 @@ export default function CheckoutPage() {
       return;
     }
 
+    const rawContact = (order.customerPhone || customerPhone || '').trim();
+    const contactDigits = rawContact.replace(/\D/g, '');
+    const prefillContact =
+      contactDigits.length === 10
+        ? `+91${contactDigits}`
+        : rawContact.startsWith('+')
+          ? rawContact.replace(/\s+/g, '')
+          : contactDigits
+            ? `+${contactDigits}`
+            : undefined;
+
+    const prefillEmail =
+      (order.customerEmail || customerEmail || user?.email || '').trim() || undefined;
+
     const rzp = new RazorpayCtor({
       key: publicKeyId,
       amount: rzpParams.amountPaise,
       currency: rzpParams.currency,
-      name: settings.businessName,
+      name: settings.businessName || 'Sri Parameshmari Printers',
       description: `Design Prompt Order ${order.orderNumber}`,
       order_id: rzpParams.orderId,
+      remember_customer: false,
+      retry: {
+        enabled: true,
+        max_count: 3,
+      },
       prefill: {
-        name: order.customerName,
-        email: order.customerEmail,
-        contact: order.customerPhone,
+        name: order.customerName || customerName,
+        email: prefillEmail,
+        contact: prefillContact,
       },
       theme: {
         color: '#3A261B',
@@ -187,6 +209,7 @@ export default function CheckoutPage() {
             deliveryMethod: 'digital',
             customerName,
             customerPhone,
+            customerEmail,
             shippingAddress: null,
           }),
         },
@@ -354,9 +377,26 @@ export default function CheckoutPage() {
                   required
                   value={customerPhone}
                   onChange={(e) => setCustomerPhone(e.target.value)}
-                  placeholder="+91 98765 43210"
+                  placeholder="9876543210"
                   className="w-full px-3.5 py-2.5 rounded-lg border border-[#CFDACE] text-sm text-[#2B1D14] focus:outline-none focus:ring-2 focus:ring-[#F59E0B]/60"
                 />
+              </div>
+              <div className="sm:col-span-2">
+                <label htmlFor="chk-email" className="block text-xs font-semibold text-[#3A261B] mb-1">
+                  Email Address *
+                </label>
+                <input
+                  id="chk-email"
+                  type="email"
+                  required
+                  value={customerEmail}
+                  onChange={(e) => setCustomerEmail(e.target.value)}
+                  placeholder="name@example.com"
+                  className="w-full px-3.5 py-2.5 rounded-lg border border-[#CFDACE] text-sm text-[#2B1D14] focus:outline-none focus:ring-2 focus:ring-[#F59E0B]/60"
+                />
+                <p className="text-xs text-[#6F7F76] mt-1">
+                  Payment confirmation and unlocked digital prompt links will be sent here.
+                </p>
               </div>
             </div>
           </div>
