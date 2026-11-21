@@ -20,7 +20,9 @@ export default function HomePage() {
   const navigate = useNavigate();
 
   const spotlightCandidates = [
-    products.find((p) => p.id === 'prod-ecommerce-website-design'),
+    products.find((p) => p.id === 'prod-enterprise-website-design'),
+    products.find((p) => p.id === 'prod-luxury-business-card-suite'),
+    products.find((p) => p.id === 'prod-packaging-label-design-system'),
     products[0],
     products[1],
     products[2],
@@ -35,6 +37,14 @@ export default function HomePage() {
 
   const activeSpotlight = spotlightProducts[spotlightIdx] || products[0];
   const featuredProducts = products.filter((p) => p.featured).slice(0, 6);
+
+  const formatCompactRate = (paise: number) => {
+    const rupees = Math.round(paise / 100);
+    if (rupees >= 1000 && rupees % 1000 === 0) {
+      return `₹${rupees / 1000}K`;
+    }
+    return formatInrFromPaise(paise);
+  };
 
   return (
     <div>
@@ -56,8 +66,8 @@ export default function HomePage() {
 
                 <p className="text-base sm:text-lg text-[#D7DFD6] max-w-2xl leading-relaxed">
                   Buy digital designs only—covering websites, business cards, flyers &amp;
-                  brochures, banners &amp; signage, stickers &amp; labels, and invitations. Every
-                  purchase unlocks the exact studio prompt so you can generate your design right away.
+                  brochures, banners &amp; signage, stickers &amp; labels, and invitations. Packages
+                  start from ₹5,000 up to ₹20,000 enterprise suites, unlocking the studio prompt on purchase.
                 </p>
 
                 <div className="flex flex-wrap items-center gap-3.5 pt-1">
@@ -112,13 +122,13 @@ export default function HomePage() {
                             key={sp.id}
                             type="button"
                             onClick={() => setSpotlightIdx(idx)}
-                            className={`px-2.5 py-1 rounded-md text-xs font-semibold transition-colors whitespace-nowrap shrink-0 ${
+                            className={`px-2.5 py-1 rounded-md text-xs font-semibold transition-colors whitespace-nowrap shrink-0 tabular-nums ${
                               spotlightIdx === idx
                                 ? 'bg-[#F59E0B] text-[#231710]'
                                 : 'text-[#D7DFD6] hover:text-white'
                             }`}
                           >
-                            {sp.categoryName.split(' ')[0]}
+                            {formatCompactRate(sp.basePricePaise)}
                           </button>
                         ))}
                       </div>

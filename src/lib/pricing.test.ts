@@ -10,8 +10,20 @@ import {
   validateArtworkFile,
 } from './pricing';
 
-test('calculateItemPricing computes exact integer paise for valid options and tier', () => {
-  const websiteProduct = SAMPLE_PRODUCTS[0]; // base 49900 (₹499)
+test('calculateItemPricing computes exact integer paise for ₹20,000 and ₹5,000 design options and tiers', () => {
+  const enterpriseProduct = SAMPLE_PRODUCTS.find((p) => p.id === 'prod-enterprise-website-design')!;
+  const baseEnterprise = calculateItemPricing(
+    enterpriseProduct,
+    {
+      scope: 'multi-store',
+      style: 'sage-walnut',
+      delivery: 'instant',
+    },
+    1
+  );
+  assert.equal(baseEnterprise.unitPackPricePaise, 2000000); // ₹20,000
+
+  const websiteProduct = SAMPLE_PRODUCTS.find((p) => p.id === 'prod-ecommerce-website-design')!;
   const basePriced = calculateItemPricing(
     websiteProduct,
     {
@@ -21,35 +33,38 @@ test('calculateItemPricing computes exact integer paise for valid options and ti
     },
     1
   );
-  assert.equal(basePriced.unitPackPricePaise, 49900);
+  assert.equal(basePriced.unitPackPricePaise, 500000); // ₹5,000
 
   const priced = calculateItemPricing(
     websiteProduct,
     {
-      scope: 'multi-store', // +20000
-      style: 'minimal-editorial', // +10000
-      delivery: 'tailored', // +20000, +1d
+      scope: 'multi-store', // +250000
+      style: 'minimal-editorial', // +100000
+      delivery: 'tailored', // +150000, +1d
     },
     3 // multiplier 1.4
   );
-  // (49900 + 20000 + 10000 + 20000) * 1.4 = 99900 * 1.4 = 139860 (₹1,398.60)
-  assert.equal(priced.unitPackPricePaise, 139860);
+  // (500000 + 250000 + 100000 + 150000) * 1.4 = 1000000 * 1.4 = 1400000 (₹14,000)
+  assert.equal(priced.unitPackPricePaise, 1400000);
   assert.match(priced.turnaroundDays, /\+1d custom/);
-  assert.equal(priced.selectedOptionLabels.scope, 'Multi-Page Storefront Prompt');
+  assert.equal(priced.selectedOptionLabels.scope, '5-Page Business Website Prompt');
 });
 
-test('catalog keeps exactly one product with ₹499 (49900 paise) minimum price', () => {
-  assert.equal(SAMPLE_PRODUCTS.length, 1);
-  const product = SAMPLE_PRODUCTS[0];
-  assert.equal(product.basePricePaise, 49900);
+test('catalog includes curated designs across categories with ₹5,000 and ₹20,000 rates', () => {
+  assert.ok(SAMPLE_PRODUCTS.length >= 6);
+  const prices = SAMPLE_PRODUCTS.map((p) => p.basePricePaise);
+  assert.ok(prices.includes(500000), 'Expected a ₹5,000 design package');
+  assert.ok(prices.includes(2000000), 'Expected a ₹20,000 design package');
 
-  const minChoiceSum = product.optionGroups.reduce(
-    (sum, g) => sum + Math.min(...g.choices.map((c) => c.priceDeltaPaise)),
-    0
-  );
-  const minMultiplier = Math.min(...product.quantityTiers.map((t) => t.multiplier));
-  const lowestPack = Math.round((product.basePricePaise + minChoiceSum) * minMultiplier);
-  assert.equal(lowestPack, 49900);
+  for (const product of SAMPLE_PRODUCTS) {
+    const minChoiceSum = product.optionGroups.reduce(
+      (sum, g) => sum + Math.min(...g.choices.map((c) => c.priceDeltaPaise)),
+      0
+    );
+    const minMultiplier = Math.min(...product.quantityTiers.map((t) => t.multiplier));
+    const lowestPack = Math.round((product.basePricePaise + minChoiceSum) * minMultiplier);
+    assert.ok(lowestPack >= 500000, `${product.id} should be rated at least ₹5,000`);
+  }
 });
 
 test('calculateItemPricing rejects tampered option or quantity tier', () => {
@@ -64,7 +79,7 @@ test('calculateItemPricing rejects tampered option or quantity tier', () => {
   assert.throws(() =>
     calculateItemPricing(
       product,
-      { scope: 'landing', style: 'sage-walnut', delivery: 'instant' },
+      { scope: 'multi-store', style: 'sage-walnut', delivery: 'instant' },
       99999
     )
   );
@@ -72,15 +87,15 @@ test('calculateItemPricing rejects tampered option or quantity tier', () => {
 
 test('calculateOrderTotals computes digital ₹0 delivery, shipping, and pickup without GST in integer paise', () => {
   const digitalOrder = calculateOrderTotals(
-    [{ unitPackPricePaise: 100000 }],
+    [{ unitPackPricePaise: 2000000 }],
     'digital',
     DEFAULT_STORE_SETTINGS
   );
-  // subtotal 100000 + ₹0 digital delivery; ₹0 tax; total = 100000
-  assert.equal(digitalOrder.subtotalPaise, 100000);
+  // subtotal 2000000 (₹20,000) + ₹0 digital delivery; ₹0 tax; total = 2000000
+  assert.equal(digitalOrder.subtotalPaise, 2000000);
   assert.equal(digitalOrder.shippingPaise, 0);
   assert.equal(digitalOrder.taxPaise, 0);
-  assert.equal(digitalOrder.totalPaise, 100000);
+  assert.equal(digitalOrder.totalPaise, 2000000);
 
   const physicalSettings = {
     gstPercentage: 0,
@@ -109,7 +124,8 @@ test('calculateOrderTotals computes digital ₹0 delivery, shipping, and pickup 
 });
 
 test('formatInrFromPaise formats clean INR strings', () => {
-  assert.equal(formatInrFromPaise(89900), '₹899');
+  assert.equal(formatInrFromPaise(500000), '₹5,000');
+  assert.equal(formatInrFromPaise(2000000), '₹20,000');
   assert.equal(formatInrFromPaise(149950), '₹1,499.50');
 });
 

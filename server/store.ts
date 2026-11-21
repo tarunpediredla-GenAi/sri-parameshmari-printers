@@ -76,6 +76,16 @@ function defaultState(): LocalRuntimeState {
   };
 }
 
+function isLegacySingleSampleCatalog(products: Product[] | undefined): boolean {
+  if (!Array.isArray(products) || products.length !== 1) return false;
+  const only = products[0];
+  return (
+    only.id === 'prod-ecommerce-website-design' &&
+    only.basePricePaise === 49900 &&
+    Boolean(only.isSampleData)
+  );
+}
+
 function readLocalState(): LocalRuntimeState {
   if (isVercelRuntime) return defaultState();
   ensureDirs();
@@ -86,10 +96,15 @@ function readLocalState(): LocalRuntimeState {
   }
   try {
     const parsed = JSON.parse(fs.readFileSync(DATA_FILE, 'utf8')) as Partial<LocalRuntimeState>;
-    return {
+    const merged: LocalRuntimeState = {
       ...defaultState(),
       ...parsed,
     };
+    if (isLegacySingleSampleCatalog(merged.products)) {
+      merged.products = SAMPLE_PRODUCTS;
+      fs.writeFileSync(DATA_FILE, JSON.stringify(merged, null, 2));
+    }
+    return merged;
   } catch {
     return defaultState();
   }
@@ -143,9 +158,10 @@ export async function getCatalogData(): Promise<{
       const categories = catSnap.empty
         ? SAMPLE_CATEGORIES
         : (catSnap.docs.map((d) => d.data()) as Category[]);
-      const products = prodSnap.empty
+      const rawProducts = prodSnap.empty
         ? SAMPLE_PRODUCTS
         : (prodSnap.docs.map((d) => d.data()) as Product[]);
+      const products = isLegacySingleSampleCatalog(rawProducts) ? SAMPLE_PRODUCTS : rawProducts;
       const settings = settingsSnap.exists
         ? (settingsSnap.data() as StoreSettings)
         : DEFAULT_STORE_SETTINGS;
